@@ -380,6 +380,9 @@ DeHulud does not change the game, but reading another program's memory may still
 terms of service, and anti-cheat software may treat it as suspicious. Nobody can promise that it is safe
 for your account. This applies to DeHulud Combat in the same way. **Use at your own risk.**
 
+DeHulud is an unofficial fan tool. It is not affiliated with or endorsed by Funcom or the rights holders
+of Dune.
+
 ## Uninstall
 
 1. Delete `dehulud.py` and/or the Rust binary `dehulud`, and the config folder `~/.config/dehulud` (or
@@ -416,3 +419,7 @@ D-Bus session and runtime directory) and is skipped when that or tkinter is miss
 desktop's display. Checked live once, on one PC: KDE Plasma (Wayland), native Steam, the game in
 fullscreen. Not tested: `--launch` under the real Steam Linux Runtime, Flatpak Steam, other desktops and
 other distributions.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

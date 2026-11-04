@@ -3,6 +3,7 @@ name = "dehulud"
 version = "0.1.0"
 edition = "2024"
 description = "Read-only sandworm threat meter for Dune: Awakening on Linux"
+license = "MIT"
 publish = false
 
 [dependencies]

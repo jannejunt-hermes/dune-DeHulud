@@ -140,9 +140,9 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/dist"
           mkdir -p "$RUNNER_TEMP/package/DeHulud" "$RUNNER_TEMP/package/DeHulud-Combat"
-          cp dehulud.py README.md "$RUNNER_TEMP/package/DeHulud/"
+          cp dehulud.py README.md LICENSE "$RUNNER_TEMP/package/DeHulud/"
           cp rust/target/x86_64-unknown-linux-musl/release/dehulud "$RUNNER_TEMP/package/DeHulud/"
-          cp dehulud.py dehulud_combat.py README.md "$RUNNER_TEMP/package/DeHulud-Combat/"
+          cp dehulud.py dehulud_combat.py README.md LICENSE "$RUNNER_TEMP/package/DeHulud-Combat/"
           cp rust/target/x86_64-unknown-linux-musl/release/dehulud-combat "$RUNNER_TEMP/package/DeHulud-Combat/"
           chmod 0755 "$RUNNER_TEMP/package/DeHulud/dehulud.py" "$RUNNER_TEMP/package/DeHulud/dehulud"
           chmod 0755 "$RUNNER_TEMP/package/DeHulud-Combat/dehulud.py" \
