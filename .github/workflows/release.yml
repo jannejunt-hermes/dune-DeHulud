@@ -70,7 +70,6 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-          targets: thumbv7em-none-eabi
 
       - name: Cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -90,6 +89,10 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+      - name: Python tests
+        working-directory: .
+        run: python3 -m unittest discover -s tests
 
   create_release:
     name: Create release
@@ -113,52 +116,60 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      - name: Build release binary
-        env:
-          BIN_NAME: dehulud
-          RUSTFLAGS: --remap-path-prefix=$HOME=~
+      - name: Build release binaries
         run: |
+          export RUSTFLAGS="--remap-path-prefix=$HOME=~"
           cargo build --locked --release \
             --target x86_64-unknown-linux-musl \
-            --bin "$BIN_NAME"
+            --bin dehulud --bin dehulud-combat
+          for BIN_NAME in dehulud dehulud-combat; do
+            BINARY="target/x86_64-unknown-linux-musl/release/$BIN_NAME"
+            strings -a "$BINARY" > "$RUNNER_TEMP/${BIN_NAME}.strings"
+            HOME_MATCHES=$(grep -c -F "$HOME" "$RUNNER_TEMP/${BIN_NAME}.strings" || [ "$?" -eq 1 ])
+            echo "$BIN_NAME: $HOME_MATCHES home-path matches"
+            if [ "$HOME_MATCHES" -ne 0 ]; then
+              echo "::error::Build contains the home directory: $BIN_NAME"
+              exit 1
+            fi
+          done
 
-      - name: Package binary
+      - name: Package programs
+        working-directory: .
         env:
-          BIN_NAME: dehulud
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p "$RUNNER_TEMP/dist"
-          
-          BINARY="target/x86_64-unknown-linux-musl/release/$BIN_NAME"
-          
-          if [ ! -f "$BINARY" ]; then
-            echo "::error::Expected binary not found: $BINARY"
-            exit 1
-          fi
-          
-          ARCHIVE="$RUNNER_TEMP/dist/${BIN_NAME}-${TAG}-x86_64-unknown-linux-musl.tar.gz"
-          
-          tar -czf "$ARCHIVE" -C "$(dirname "$BINARY")" "$BIN_NAME"
-          
+          mkdir -p "$RUNNER_TEMP/package/DeHulud" "$RUNNER_TEMP/package/DeHulud-Combat"
+          cp dehulud.py README.md "$RUNNER_TEMP/package/DeHulud/"
+          cp rust/target/x86_64-unknown-linux-musl/release/dehulud "$RUNNER_TEMP/package/DeHulud/"
+          cp dehulud.py dehulud_combat.py README.md "$RUNNER_TEMP/package/DeHulud-Combat/"
+          cp rust/target/x86_64-unknown-linux-musl/release/dehulud-combat "$RUNNER_TEMP/package/DeHulud-Combat/"
+          chmod 0755 "$RUNNER_TEMP/package/DeHulud/dehulud.py" "$RUNNER_TEMP/package/DeHulud/dehulud"
+          chmod 0755 "$RUNNER_TEMP/package/DeHulud-Combat/dehulud.py" \
+            "$RUNNER_TEMP/package/DeHulud-Combat/dehulud_combat.py" "$RUNNER_TEMP/package/DeHulud-Combat/dehulud-combat"
+          cd "$RUNNER_TEMP/package"
+          zip -r "$RUNNER_TEMP/dist/DeHulud-${TAG}.zip" DeHulud
+          zip -r "$RUNNER_TEMP/dist/DeHulud-Combat-${TAG}.zip" DeHulud-Combat
           cd "$RUNNER_TEMP/dist"
-          sha256sum "$(basename "$ARCHIVE")" > SHA256SUMS
+          sha256sum "DeHulud-${TAG}.zip" "DeHulud-Combat-${TAG}.zip" > SHA256SUMS
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-          BIN_NAME: dehulud
         run: |
-          ARCHIVE="$RUNNER_TEMP/dist/${BIN_NAME}-${TAG}-x86_64-unknown-linux-musl.tar.gz"
+          ARCHIVE="$RUNNER_TEMP/dist/DeHulud-${TAG}.zip"
+          COMBAT_ARCHIVE="$RUNNER_TEMP/dist/DeHulud-Combat-${TAG}.zip"
           CHECKSUM="$RUNNER_TEMP/dist/SHA256SUMS"
           
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists — uploading assets."
-            gh release upload "$TAG" "$ARCHIVE" "$CHECKSUM" --clobber
+            gh release upload "$TAG" "$ARCHIVE" "$COMBAT_ARCHIVE" "$CHECKSUM" --clobber
           else
             gh release create "$TAG" \
               --title "$TAG" \
               --generate-notes \
               "$ARCHIVE" \
+              "$COMBAT_ARCHIVE" \
               "$CHECKSUM"
           fi
