@@ -142,8 +142,10 @@ class X11:
         assert attrs.override_redirect, "overlay is managed"
         assert [attrs.x, attrs.y, attrs.width, attrs.height] == state["geometry"][:4]
         assert (attrs.map_state == 2) == state["mapped"], "map state differs"
-        assert self.rectangles(win, 2) == [], "overlay accepts input"
-        assert coverage(self.rectangles(win, 0)) == coverage(state["outlines"]), "bounding shape differs"
+        inputs = self.rectangles(win, 2)
+        assert inputs == [], ("overlay accepts input", win, inputs, state)
+        bounds = self.rectangles(win, 0)
+        assert coverage(bounds) == coverage(state["outlines"]), ("bounding shape differs", win, bounds, state)
 
     def self_check(self):
         """Exercise the observer's ABI against a known window on the owned display."""

@@ -68,9 +68,39 @@ def socket_snapshot(pid):
     return len(inodes)
 
 
+def shipped_sockets(x, out):
+    """Runs only in the newly-mounted PID namespace: production scans see no owner processes."""
+    assert os.getpid() == 1, "production probes require the private PID namespace"
+    commands = [("plain", [os.environ["DEHULUD_SOCKET_PLAIN_BIN"]], "DeHulud"),
+                ("combat", [os.environ["DEHULUD_SOCKET_COMBAT_BIN"]], "DeHulud Combat")]
+    try:
+        import tkinter  # noqa: F401
+    except ImportError:
+        out["python_skip"] = "this Python has no tkinter"
+    else:
+        commands.append(("python", [sys.executable, "-B", str(Path(__file__).resolve().parent.parent / "dehulud_combat.py")],
+                         "DeHulud Combat"))
+    counts = {}
+    for name, argv, title in commands:
+        with (Path(os.environ["TMPDIR"]) / (name + "-socket.log")).open("w") as log:
+            child = subprocess.Popen(argv, stdout=log, stderr=log)
+            try:
+                wait_for(lambda: x.find(title), name + " production window")
+                counts[name] = []
+                for _ in range(3):
+                    counts[name].append(socket_snapshot(child.pid))
+                    time.sleep(.05)
+            finally:
+                child.terminate()
+                child.wait(timeout=5)
+                wait_for(lambda: True if x.find(title) is None else None, name + " window closed")
+    out["socket_counts"] = counts
+
+
 def rust_reads(no_shape):
     tmp = Path(os.environ["TMPDIR"]) / ("no-shape" if no_shape else "shape")
     tmp.mkdir()
+    (tmp / "cfg").mkdir()
     ctl, trace = tmp / "control", tmp / "trace"
     fin, fout = tmp / "in", tmp / "out"
     for p in (fin, fout):
@@ -90,7 +120,8 @@ def rust_reads(no_shape):
                                    "--build", "26333948", "--damage"]) + " <" + shlex.quote(str(fin)) + " >" + shlex.quote(str(fout))
     log = (tmp / "stderr").open("w")
     child = subprocess.Popen([os.environ["DEHULUD_OVERLAY_BIN"], "--launch", "/bin/sh", "-c", script],
-                             env=dict(os.environ, DEHULUD_TEST_SOURCE=str(ctl)), stderr=log, stdout=log)
+                             env=dict(os.environ, DEHULUD_TEST_SOURCE=str(ctl), XDG_CONFIG_HOME=str(tmp / "cfg")),
+                             stderr=log, stdout=log)
     try:
         selector = selectors.DefaultSelector()
         selector.register(output, selectors.EVENT_READ)
@@ -239,7 +270,6 @@ def rust_probe(x, out):
             child.kill()
             child.wait()
         log.close()
-    out["read_log"] = [rust_reads(False), rust_reads(True)]
 
 
 def python_probe(x, out):
@@ -264,6 +294,8 @@ def python_probe(x, out):
             meter.reading = r
             w.tick()
             w.root.update()
+            out.setdefault("windows", []).append({"shaped": w.overlay.xid, "queried": x.find(m.OVERLAY_TITLE),
+                                                    "state": w.overlay_state()})
             x.check_overlay(w.overlay_state())
             text = [w.canvas.itemcget(item, "text") for item in w.canvas.find_all()
                     if w.canvas.type(item) == "text"]
@@ -293,6 +325,8 @@ def python_probe(x, out):
 def main(mode, result, before):
     out = {"failures": []}
     try:
+        # The compositor may remove TMPDIR from the session it starts.
+        os.environ["TMPDIR"] = str(Path(result).parent)
         display = os.environ.get("DISPLAY", "")
         number = display[1:].split(".")[0] if display.startswith(":") else ""
         assert number and "X" + number not in before.split(","), "refused pre-existing display"
@@ -301,6 +335,14 @@ def main(mode, result, before):
             if mode == "harness":
                 x.self_check()
                 out.update(shape_checks=3)
+            elif mode == "rust-reads":
+                out["read_log"] = [rust_reads(False), rust_reads(True)]
+            elif mode == "socket-inner":
+                shipped_sockets(x, out)
+            elif mode == "sockets":
+                subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc",
+                                sys.executable, "-B", __file__, "socket-inner", result, before], check=True, timeout=30)
+                return
             else:
                 (rust_probe if mode == "rust" else python_probe)(x, out)
         finally:

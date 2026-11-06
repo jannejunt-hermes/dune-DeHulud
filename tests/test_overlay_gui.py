@@ -23,8 +23,15 @@ class OverlayGui(unittest.TestCase):
             except ImportError:
                 self.skipTest("this Python has no tkinter")
         binary = os.environ.get("DEHULUD_OVERLAY_BIN")
-        if mode == "rust" and not binary:
+        if mode.startswith("rust") and not binary:
             self.skipTest("run from cargo test --features test-source for the Rust window")
+        if mode == "sockets":
+            if not all(os.environ.get(k) for k in ("DEHULUD_SOCKET_PLAIN_BIN", "DEHULUD_SOCKET_COMBAT_BIN")):
+                self.skipTest("production binaries are provided by cargo test without test-source")
+            check = subprocess.run(["unshare", "--user", "--map-root-user", "--pid", "--fork", "--mount-proc", "true"],
+                                   capture_output=True, check=False)
+            if check.returncode:
+                self.skipTest("private PID namespace unavailable")
         with tempfile.TemporaryDirectory(prefix="overlay-gui-") as tmp:
             tmp = Path(tmp)
             dirs = {k: tmp / k for k in ("home", "run", "cfg", "data", "cache", "state")}
@@ -42,6 +49,9 @@ class OverlayGui(unittest.TestCase):
                    "XDG_RUNTIME_DIR": str(dirs["run"])}
             if binary:
                 env["DEHULUD_OVERLAY_BIN"] = binary
+            for key in ("DEHULUD_SOCKET_PLAIN_BIN", "DEHULUD_SOCKET_COMBAT_BIN"):
+                if key in os.environ:
+                    env[key] = os.environ[key]
             with (tmp / "kwin.log").open("w") as log:
                 subprocess.run(["dbus-run-session", "--", "kwin_wayland", "--virtual", "--xwayland",
                                 "--no-lockscreen", "--no-global-shortcuts", "--no-kactivities", "--socket",
@@ -51,8 +61,13 @@ class OverlayGui(unittest.TestCase):
             self.assertTrue(result.exists(), logs)
             data = json.loads(result.read_text())
             self.assertEqual(data.get("failures"), [], logs + repr(data))
-            self.assertGreaterEqual(data["shape_checks"], 3)
-            if mode != "harness":
+            if mode == "sockets":
+                self.assertTrue({"plain", "combat"} <= set(data["socket_counts"]))
+            elif mode == "rust-reads":
+                self.assertEqual([r["no_shape"] for r in data["read_log"]], [False, True])
+            else:
+                self.assertGreaterEqual(data["shape_checks"], 3)
+            if mode not in ("harness", "rust-reads", "sockets"):
                 self.assertEqual(data["heights"], [62, 38, 38, 62, 62, 18, 38, 62, 62])
 
     def test_python_window(self):
@@ -63,6 +78,12 @@ class OverlayGui(unittest.TestCase):
 
     def test_rust_window(self):
         self.run_probe("rust")
+
+    def test_rust_read_log(self):
+        self.run_probe("rust-reads")
+
+    def test_production_socket_snapshots(self):
+        self.run_probe("sockets")
 
 
 if __name__ == "__main__":
