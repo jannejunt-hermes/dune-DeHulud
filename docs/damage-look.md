@@ -8,7 +8,7 @@ windows:
   the worm meter and the status line. This is the window you drag, right-click and that remembers its place in
   Combat's config file (`dehulud-combat` folder, keys `x`, `y`, `frame` and the three switches).
 - **the damage overlay**: a second window with no background, no frame and no border, near the top middle of the
-  screen, that shows only the damage numbers: **damage taken in red, damage dealt in blue**. It is on screen only
+  screen, that shows only the damage numbers: **damage taken in red, damage dealt in purple (health) and light blue (shield)**. It is on screen only
   while it has a number to show; it is not meant to be clicked (clicks go through it on a display server that
   honours input shapes), and it has no menu and no position of its own.
 
@@ -158,7 +158,7 @@ x=0        x=45  x=55        x=100
   in the same places; no Tk font is used for the overlay.
 - Numbers are whole points, rounded as before; a value that rounds to 0 is not drawn. Never more than five digits:
   a larger value is drawn as `-99999` / `99999`.
-- Damage dealt keeps its two channels, **health** and **shield**, as two shades of blue in the one column. When a
+- Damage dealt keeps its two channels, **health** and **shield**, as two colours in the one column: health purple, shield light blue. When a
   poll emits both, the shield numbers go in first and the health numbers after them, so the health number ends on
   top (row 0) with the shield number under it.
 - **No standalone `-` is ever drawn in the overlay.** The grey `-` that the worm meter shows for "nothing
@@ -175,7 +175,7 @@ is drawn at full colour for its first two polls, then in three dimmer steps, and
 | use | full (ages 0, 1) | age 2 | age 3 | age 4 | age 5 |
 |---|---|---|---|---|---|
 | damage taken (red) | `#ff4d3d` | `#b63a2f` | `#792923` | `#3c1917` | removed |
-| damage dealt, health (blue) | `#3d9bff` | `#2e70b6` | `#224c7a` | `#15293d` | removed |
+| damage dealt, health (purple) | `#b366ff` | `#814bb6` | `#57357a` | `#2d1e3d` | removed |
 | damage dealt, shield (light blue) | `#9cd2ff` | `#7197b6` | `#4c657a` | `#28343d` | removed |
 | outline (every age) | `#0b0c0d` | | | | |
 
@@ -250,7 +250,7 @@ target: a 202 x 102 window at (859, 270), scale 2, and on the screen nothing but
 rim:
 
 ```
-                          -37     120        <- row 0: red; health blue (newest)
+                          -37     120        <- row 0: red; health purple (newest)
                                   40         <- row 1: shield light blue
                                              <- rows 2, 3: empty
 ```

@@ -7,7 +7,7 @@ use crate::sections::{Feature, Features, LIFE, ROWS, shown_number};
 pub const TITLE: &str = "DeHulud Combat damage";
 pub const NO_SHAPE: &str = "damage numbers need the X SHAPE extension";
 pub const OVERLAY_TAKEN: [u32; 5] = [0xff4d3d, 0xff4d3d, 0xb63a2f, 0x792923, 0x3c1917];
-pub const OVERLAY_HEALTH: [u32; 5] = [0x3d9bff, 0x3d9bff, 0x2e70b6, 0x224c7a, 0x15293d];
+pub const OVERLAY_HEALTH: [u32; 5] = [0xb366ff, 0xb366ff, 0x814bb6, 0x57357a, 0x2d1e3d];
 pub const OVERLAY_SHIELD: [u32; 5] = [0x9cd2ff, 0x9cd2ff, 0x7197b6, 0x4c657a, 0x28343d];
 pub const OUTLINE: u32 = 0x0b0c0d;
 

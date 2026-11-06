@@ -455,7 +455,7 @@ fn traced_overlay(v: &Value) -> Option<(bool, Vec<(i64, i64, i64, i64)>, Vec<(i6
 }
 
 const OV_TAKEN: [&str; 5] = ["#ff4d3d", "#ff4d3d", "#b63a2f", "#792923", "#3c1917"];
-const OV_HEALTH: [&str; 5] = ["#3d9bff", "#3d9bff", "#2e70b6", "#224c7a", "#15293d"];
+const OV_HEALTH: [&str; 5] = ["#b366ff", "#b366ff", "#814bb6", "#57357a", "#2d1e3d"];
 const OV_SHIELD: [&str; 5] = ["#9cd2ff", "#9cd2ff", "#7197b6", "#4c657a", "#28343d"];
 
 /// Whether the traced overlay of an event has fills of any of `colours`.

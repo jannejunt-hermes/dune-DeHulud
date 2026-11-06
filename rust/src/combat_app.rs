@@ -21,8 +21,8 @@ pub const USAGE: &str =
 Shows how close you are to the sandworm attack threshold (a percent and a bar) in a small
 always-on-top window with a switch for the worm meter, damage taken and damage dealt (or the worm
 meter as one terminal line). The damage numbers appear on screen, centred about a quarter of the way
-down: damage taken in red on the left, damage dealt in blue on the right. It finds the running game
-(Proton) by itself.
+down: damage taken in red on the left, damage dealt on the right (enemy health in purple, shields in
+blue). It finds the running game (Proton) by itself.
 
   dehulud-combat                    window (falls back to text without a local X display)
   dehulud-combat --text             one-line worm meter in the terminal

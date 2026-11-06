@@ -268,7 +268,7 @@ One click on a label switches that part on or off. A switched-off worm meter dis
 fit; a switched-off damage column clears at once, and Combat does no reads for it. With all three off only the
 header row is left, so you can switch one back on. The damage numbers themselves no longer show in the box:
 they appear in the middle of the primary monitor, about a quarter of the way down from the top, as numbers
-with no background - damage taken in red on the left, damage dealt in blue on the right (health blue, shield
+with no background - damage taken in red on the left, damage dealt on the right (enemy health purple, shield
 light blue). The numbers need an X server with the SHAPE extension, which the usual desktops have; without it
 Combat prints one line (`damage numbers need the X SHAPE extension`) and shows no damage numbers.
 
@@ -294,7 +294,7 @@ a second. **Limits:** two hits within one poll merge into one number. Healing in
 of a hit. The number is a net health drop, not the weapon's damage.
 
 **Damage dealt** shows health and shield lost by the enemies you fight, in the one column on the right: health
-in blue and shield in light blue, without a minus sign. It shows up to 4 numbers, the newest at the top, each
+in purple and shield in light blue, without a minus sign. It shows up to 4 numbers, the newest at the top, each
 fading after about a second. Hits within the same poll merge into one number. Tracked are the enemy you are
 aiming at, your melee soft-lock target, and the last 4 distinct enemies you aimed at, each kept for 18 seconds
 after you last aimed at it. Only characters count. **Limits:** other players' hits on the same enemy count too.
