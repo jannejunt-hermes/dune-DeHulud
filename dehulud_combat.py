@@ -554,6 +554,123 @@ def damage_cells(view, enabled):
     return out
 
 
+# The damage overlay: what it shows and where (no window code).
+OVERLAY_TITLE = "DeHulud Combat damage"
+NO_SHAPE = "damage numbers need the X SHAPE extension"
+OVERLAY_TAKEN = ("#ff4d3d", "#ff4d3d", "#b63a2f", "#792923", "#3c1917")
+OVERLAY_HEALTH = ("#3d9bff", "#3d9bff", "#2e70b6", "#224c7a", "#15293d")
+OVERLAY_SHIELD = ("#9cd2ff", "#9cd2ff", "#7197b6", "#4c657a", "#28343d")
+OUTLINE = "#0b0c0d"
+BIG_GLYPHS = {
+    "0": "..###.. .##.##. ##...## ##...## ##...## ##...## ##...## ##...## ##...## .##.##. ..###..".split(),
+    "1": "...##.. ..###.. .####.. ...##.. ...##.. ...##.. ...##.. ...##.. ...##.. ...##.. .######".split(),
+    "2": ".#####. ##...## .....## .....## ....##. ...##.. ..##... .##.... ##..... ##..... #######".split(),
+    "3": ".#####. ##...## .....## .....## ...###. .....## .....## .....## .....## ##...## .#####.".split(),
+    "4": "....##. ...###. ..####. .##.##. ##..##. ##..##. ####### ....##. ....##. ....##. ....##.".split(),
+    "5": "####### ##..... ##..... ##..... ######. .....## .....## .....## .....## ##...## .#####.".split(),
+    "6": "..####. .##.... ##..... ##..... ######. ##...## ##...## ##...## ##...## ##...## .#####.".split(),
+    "7": "####### .....## .....## ....##. ....##. ...##.. ...##.. ..##... ..##... ..##... ..##...".split(),
+    "8": ".#####. ##...## ##...## ##...## .#####. ##...## ##...## ##...## ##...## ##...## .#####.".split(),
+    "9": ".#####. ##...## ##...## ##...## ##...## .###### .....## .....## .....## ....##. .####..".split(),
+    "-": "..... ..... ..... ..... ..... ##### ##### ..... ..... ..... .....".split(),
+}
+
+
+def overlay_monitor(mons, screen):
+    """Primary monitor, first monitor, or the whole screen, as (x, y, width, height)."""
+    return next((m[:4] for m in mons if m[4]), mons[0][:4] if mons else screen)
+
+
+def overlay_geometry(mon):
+    """Position, size, scale and outline width: (x, y, w, h, s, o)."""
+    x, y, width, height = mon
+    s = max(1, (height + 270) // 540)
+    o = max(1, s // 2)
+    w, h = 100 * s + 2 * o, 50 * s + 2 * o
+    return x + (width - w) // 2, y + height // 4, w, h, s, o
+
+
+def big_runs(text, x, y):
+    """Horizontal bitmap ink runs (x, y, width), in glyph and row order."""
+    out = []
+    for c in text:
+        rows = BIG_GLYPHS[c]
+        for row, bits in enumerate(rows):
+            col = 0
+            while col < len(bits):
+                if bits[col] == "#":
+                    start = col
+                    while col < len(bits) and bits[col] == "#":
+                        col += 1
+                    out.append((x + start, y + row, col - start))
+                else:
+                    col += 1
+        x += len(rows[0]) + 1
+    return out
+
+
+class Overlay:
+    """Two newest-first columns, with no marker for an unreadable feature."""
+
+    def __init__(self):
+        self.taken, self.dealt = [], []
+
+    def reset(self, feature):
+        if feature == "damage_taken":
+            self.taken.clear()
+        elif feature == "damage_dealt":
+            self.dealt.clear()
+
+    def empty(self):
+        return not (self.taken or self.dealt)
+
+    def step(self, r, enabled):
+        if "damage_taken" not in enabled or r.taken is None:
+            self.taken.clear()
+        else:
+            self.taken = [(n, age + 1) for n, age in self.taken if age + 1 < LIFE]
+            for value in r.taken:
+                n = shown_number(value)
+                if n is not None:
+                    self.taken.insert(0, (n, 0))
+            del self.taken[ROWS:]
+        if "damage_dealt" not in enabled or r.dealt is None or any(v is None for v in r.dealt):
+            self.dealt.clear()
+        else:
+            self.dealt = [(n, age + 1, c) for n, age, c in self.dealt if age + 1 < LIFE]
+            health, shield = r.dealt
+            for values, channel in ((shield, "shield"), (health, "health")):
+                for value in values:
+                    n = shown_number(value)
+                    if n is not None:
+                        self.dealt.insert(0, (n, 0, channel))
+            del self.dealt[ROWS:]
+
+
+def overlay_rects(view, s, o):
+    """Bounding outlines in run order, then coloured fills to paint over all outlines."""
+    outlines, fills = [], []
+
+    def number(text, row, taken, colour):
+        width = sum(len(BIG_GLYPHS[c][0]) for c in text) + len(text) - 1
+        tx = 45 - width if taken else 55
+        for rx, ry, rw in big_runs(text, tx, 13 * row):
+            x, y, w, h = o + rx * s, o + ry * s, rw * s, s
+            outlines.append((x - o, y - o, w + 2 * o, h + 2 * o))
+            fills.append((x, y, w, h, colour))
+
+    for i, (n, age) in enumerate(view.taken[:ROWS]):
+        number("-" + str(n), i, True, OVERLAY_TAKEN[age])
+    for i, (n, age, channel) in enumerate(view.dealt[:ROWS]):
+        colours = OVERLAY_HEALTH if channel == "health" else OVERLAY_SHIELD
+        number(str(n), i, False, colours[age])
+    return outlines, fills
+
+
+def read_features(enabled, overlay_ok):
+    return set(enabled) if overlay_ok else set(enabled) - {"damage_taken", "damage_dealt"}
+
+
 DEFAULTS = {"x": None, "y": None, "frame": False, "worm": True, "damage_taken": True, "damage_dealt": True}
 
 

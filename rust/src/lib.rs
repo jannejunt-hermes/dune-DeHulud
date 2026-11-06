@@ -32,6 +32,7 @@ pub mod font;
 pub mod help;
 pub mod json;
 pub mod meter;
+pub mod overlay;
 pub mod procfs;
 pub mod sections;
 pub mod text;
