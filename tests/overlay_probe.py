@@ -43,8 +43,14 @@ def state(view, geometry, module):
 def socket_snapshot(pid):
     """Classify the observed sockets of this probe's child, never another process."""
     base = Path("/proc") / str(pid)
-    inodes = [p.readlink().name[8:-1] for p in (base / "fd").iterdir()
-              if str(p.readlink()).startswith("socket:[")]
+    inodes = []
+    for p in (base / "fd").iterdir():
+        try:
+            target = str(p.readlink())
+        except FileNotFoundError:
+            continue  # /proc may include the enumeration's own already-closed directory descriptor
+        if target.startswith("socket:["):
+            inodes.append(target[8:-1])
     assert inodes, "no display socket observed"
     unix = {line.split()[6] for line in (base / "net/unix").read_text().splitlines()[1:]}
     assert set(inodes) <= unix, "a non-Unix socket is open"
@@ -289,14 +295,18 @@ def python_probe(x, out):
     try:
         w.root.update()
         heights, checks = [w.root.winfo_height()], 0
-        for r in (meter.reading, m.Reading("on foot", 42, .425, taken=(37,), dealt=((120,), (40,))),
-                  m.Reading("Unsupported game version")):
+        empty = meter.reading
+        hit = m.Reading("on foot", 42, .425, taken=(37,), dealt=((120,), (40,)))
+        readings = [empty, hit] + [empty] * 5 + [hit, m.Reading("Unsupported game version")]
+        expected_maps = [False, True, True, True, True, True, False, True, False]
+        for r, expected_map in zip(readings, expected_maps):
             meter.reading = r
             w.tick()
             w.root.update()
             out.setdefault("windows", []).append({"shaped": w.overlay.xid, "queried": x.find(m.OVERLAY_TITLE),
-                                                    "state": w.overlay_state()})
+                                                    "mapped": w.overlay_state()["mapped"]})
             x.check_overlay(w.overlay_state())
+            assert w.overlay_state()["mapped"] == expected_map, "numbers did not map, expire, or clear"
             text = [w.canvas.itemcget(item, "text") for item in w.canvas.find_all()
                     if w.canvas.type(item) == "text"]
             assert not {"TAKEN", "HEALTH", "SHIELD"}.intersection(text), text
