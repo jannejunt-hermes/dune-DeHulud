@@ -9,7 +9,8 @@ windows:
   Combat's config file (`dehulud-combat` folder, keys `x`, `y`, `frame` and the three switches).
 - **the damage overlay**: a second window with no background, no frame and no border, near the top middle of the
   screen, that shows only the damage numbers: **damage taken in red, damage dealt in blue**. It is on screen only
-  while it has a number to show; it takes no clicks, has no menu and no position of its own.
+  while it has a number to show; it is not meant to be clicked (clicks go through it on a display server that
+  honours input shapes), and it has no menu and no position of its own.
 
 **Plain DeHulud is not changed by this page**: its window stays 180 x 44, with no header row and the status line under
 the bar, exactly as shipped. Combat's worm meter is the same meter drawn the same way, under the header.
@@ -100,7 +101,8 @@ with the SHAPE extension; the usual desktops do).
   time it appears. No menu, no drag, no entry in the config file: its place follows from the monitor.
 - **Only the glyphs are the window.** The window's shape is exactly the union of the outlined digit strokes
   described below; between and around the glyphs there is no window at all, so whatever is underneath (the game)
-  shows through and gets the clicks. The window never takes a click, not even on a digit.
+  shows through. Its input shape is set to empty (zero rectangles), so where the display server honours input
+  shapes a click lands on what is underneath, even on a digit; the window itself never reacts to one.
 - **On screen only while it has at least one number to show.** As soon as both columns are empty it disappears,
   and it comes back with the next number.
 
@@ -148,8 +150,9 @@ x=0        x=45  x=55        x=100
 - Row `i` (0 = newest, at the top) has its glyph top at y = `13*i`: rows at y = 0, 13, 26, 39 (13 px pitch: 11 px
   glyph + 2 px gap); the last row ends at y = 50. A new number goes to row 0 and pushes the others down one row;
   more than four and the oldest drops out. The two columns move independently.
-- The 10 font px between x = 45 and x = 55 stay empty, so the two columns are separated by `10*s` screen pixels
-  (20 at 1080p, 40 at 4K) either side of the monitor's centre line.
+- The 10 font px between x = 45 and x = 55 stay empty, so the glyph fills of the two columns are `10*s` screen
+  pixels apart, either side of the monitor's centre line. The outline grows each run by `o`, so the nearest
+  outlined edges are `10*s - 2*o` apart: 18 px at 1080p, 36 px at 4K.
 - Glyphs: the big bitmap font of the binary, 7 x 11 digits, 5 x 11 `-`, 1 px between glyphs, never bold. The Tk
   version draws the overlay from the same digit and `-` rows as a table, so both versions put the same font pixels
   in the same places; no Tk font is used for the overlay.
@@ -158,8 +161,9 @@ x=0        x=45  x=55        x=100
 - Damage dealt keeps its two channels, **health** and **shield**, as two shades of blue in the one column. When a
   poll emits both, the shield numbers go in first and the health numbers after them, so the health number ends on
   top (row 0) with the shield number under it.
-- **No `-` is ever drawn in the overlay.** A poll with nothing trustworthy for a feature clears that column; the
-  box's status line says why. A switch turned off clears its column at once. With both columns empty the window is
+- **No standalone `-` is ever drawn in the overlay.** The grey `-` that the worm meter shows for "nothing
+  trustworthy" has no counterpart here; the minus sign of a taken number (`-N`) is part of the number and stays. A
+  poll with nothing trustworthy for a feature clears that column; the box's status line says why. A switch turned off clears its column at once. With both columns empty the window is
   off screen.
 
 ### Colours and fade
@@ -213,8 +217,9 @@ overlay columns are simply cleared in the same case, with the status line naming
 | in the world, nothing hit and nothing hitting | numbers | empty | empty | `on foot` |
 
 A per-target failure in damage dealt (a stale handle, a vehicle target, a failed class check) is silent: that target
-simply shows nothing. An empty dealt column while you are clearly hitting something means the world itself could
-not be read; look at the status line. With the worm meter off, the `PE ...` hint of an unsupported build is not shown
+simply shows nothing. An empty column by itself says nothing about why: the switch may be off, the overlay may not
+be available, there may be no valid target, or a drop may have rounded to 0, as well as the states in the table.
+The status line is the place that names the state; do not read a failure into an empty column. With the worm meter off, the `PE ...` hint of an unsupported build is not shown
 anywhere; the status line still names the state and right-click > *Help / details* has the number.
 
 ## Mocks
