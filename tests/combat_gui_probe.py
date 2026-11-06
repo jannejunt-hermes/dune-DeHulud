@@ -12,13 +12,31 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 
 def overlay_on_server(w, xs):
-    """The overlay window as the X server sees it, through the program's own X SHAPE connection."""
+    """The overlay as the X server sees it, through the program's own X SHAPE connection: the window found by its
+    title among the root's children (not the id the program keeps), its shapes, map state and place, plus the
+    ids Tk and the program name for it."""
     import ctypes
     import dehulud_combat as dehulud
     st, ov = w.overlay_state(), w.overlay
-    x11, xext, dpy, xid = xs.x11, xs.xext, xs.dpy, ov.xid
+    x11, xext, dpy = xs.x11, xs.xext, xs.dpy
     x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
     x11.XSync(dpy, 0)
+    x11.XDefaultRootWindow.restype, x11.XDefaultRootWindow.argtypes = ctypes.c_ulong, [ctypes.c_void_p]
+    x11.XFetchName.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_char_p)]
+    root, parent, children, n = ctypes.c_ulong(0), ctypes.c_ulong(0), ctypes.c_void_p(None), ctypes.c_uint(0)
+    x11.XQueryTree(dpy, x11.XDefaultRootWindow(dpy), ctypes.byref(root), ctypes.byref(parent), ctypes.byref(children),
+                   ctypes.byref(n))
+    kids = ctypes.cast(children, ctypes.POINTER(ctypes.c_ulong))
+    titled = []
+    for k in range(n.value):
+        name = ctypes.c_char_p(None)
+        if x11.XFetchName(dpy, kids[k], ctypes.byref(name)) and name.value == dehulud.OVERLAY_TITLE.encode():
+            titled.append(kids[k])
+    if children.value:
+        x11.XFree(children)
+    if len(titled) != 1:
+        return {"titled": titled}
+    win = titled[0]
 
     class Attrs(ctypes.Structure):                  # XWindowAttributes
         _fields_ = [(n, ctypes.c_int) for n in ("x", "y", "width", "height", "border_width", "depth")] + [
@@ -31,15 +49,14 @@ def overlay_on_server(w, xs):
             ("screen", ctypes.c_void_p)]
     a = Attrs()
     x11.XGetWindowAttributes.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(Attrs)]
-    x11.XGetWindowAttributes(dpy, xid, ctypes.byref(a))
+    x11.XGetWindowAttributes(dpy, win, ctypes.byref(a))
     xext.XShapeGetRectangles.restype = ctypes.POINTER(dehulud._XRectangle)
     xext.XShapeGetRectangles.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
                                          ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int)]
-    x11.XFree.argtypes = [ctypes.c_void_p]
 
     def region(kind):
         n, order = ctypes.c_int(0), ctypes.c_int(0)
-        r = xext.XShapeGetRectangles(dpy, xid, kind, ctypes.byref(n), ctypes.byref(order))
+        r = xext.XShapeGetRectangles(dpy, win, kind, ctypes.byref(n), ctypes.byref(order))
         rects = [(r[i].x, r[i].y, r[i].width, r[i].height) for i in range(n.value)]
         if r:
             x11.XFree(r)
@@ -49,9 +66,9 @@ def overlay_on_server(w, xs):
         return sorted({(x, y) for rx, ry, rw, rh in rects for x in range(rx, rx + rw) for y in range(ry, ry + rh)})
     n_input, _ = region(dehulud.SHAPE_INPUT)
     _, bounding = region(dehulud.SHAPE_BOUNDING)
-    return {"state": st, "title": ov.top.title(), "frame_is_mapped_window": ov.xid == int(ov.top.wm_frame(), 16),
-            "override_redirect": bool(a.override_redirect), "viewable": a.map_state == 2,
-            "rootxy": [ov.top.winfo_rootx(), ov.top.winfo_rooty()], "size": [a.width, a.height],
+    return {"state": st, "titled": titled, "shaped": ov.xid, "tk_id": int(ov.top.winfo_id()),
+            "wm_frame": int(ov.top.wm_frame(), 16), "override_redirect": bool(a.override_redirect),
+            "viewable": a.map_state == 2, "rootxy": [a.x, a.y], "size": [a.width, a.height],
             "input_rects": n_input, "bounding_is_outlines": bounding == cover(st["outlines"])}
 
 
@@ -82,7 +99,7 @@ def main(result_path, before):
            "frameless": bool(w.root.overrideredirect()), "size": [w.root.winfo_width(), w.root.winfo_height()],
            "shown": []}
     xs = w.overlay.xs if w.overlay else None
-    out["overlay_unmapped_at_start"] = bool(w.overlay) and not w.overlay.top.winfo_ismapped()
+    out["overlay_start"] = overlay_on_server(w, xs) if xs else None
     for i in range(4):
         w.tick()
         w.root.update()
@@ -122,7 +139,7 @@ def main(result_path, before):
     for _ in range(6):                                  # the numbers age out: unmapped
         w.tick()
         w.root.update()
-    out["overlay_after"] = {"mapped": w.overlay_state()["mapped"], "ismapped": bool(w.overlay.top.winfo_ismapped())}
+    out["overlay_after"] = overlay_on_server(w, xs)
     w.quit()
     try:
         out["destroyed"] = not w.root.winfo_exists()

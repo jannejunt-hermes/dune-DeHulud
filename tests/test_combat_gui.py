@@ -79,17 +79,22 @@ class CombatGui(unittest.TestCase):
         self.assertEqual(r["after_frame"]["frame"], True)
         self.assertEqual(r["after_reset"], {"x": None, "y": None, "frame": True, "worm": True, "damage_taken": False, "damage_dealt": True})
         self.assertTrue(r["destroyed"])
-        # the damage overlay (1280 x 800 virtual output: s = 1, 102 x 52 at 589, 200)
-        self.assertTrue(r["overlay_unmapped_at_start"])
-        ov = r["overlay"]
-        self.assertEqual(ov["state"]["geometry"], [589, 200, 102, 52, 1, 1])
-        self.assertEqual((ov["title"], ov["rootxy"], ov["size"]), ("DeHulud Combat damage", [589, 200], [102, 52]))
-        self.assertTrue(ov["frame_is_mapped_window"] and ov["override_redirect"] and ov["viewable"], ov)
-        self.assertTrue(ov["state"]["mapped"] and ov["state"]["outlines"], ov)
-        self.assertEqual(ov["input_rects"], 0)
-        self.assertTrue(ov["bounding_is_outlines"])
-        self.assertEqual(r["overlay_after"], {"mapped": False, "ismapped": False})
-
+        # the damage overlay (1280 x 800 virtual output: s = 1, 102 x 52 at 589, 200), found on the server by its
+        # title among the root's children: that window is the one the program shapes, at start-up (unmapped,
+        # nothing shaped in), with numbers (mapped, shaped to their outlines) and after they expire (unmapped,
+        # shape empty again); its input shape is empty throughout
+        for when, mapped in (("overlay_start", False), ("overlay", True), ("overlay_after", False)):
+            ov = r[when]
+            self.assertEqual(len(ov["titled"]), 1, (when, ov))
+            self.assertEqual(ov["titled"][0], ov["shaped"], (when, ov))
+            self.assertEqual(ov["state"]["geometry"], [589, 200, 102, 52, 1, 1])
+            self.assertEqual((ov["override_redirect"], ov["viewable"], ov["state"]["mapped"]), (True, mapped, mapped),
+                             (when, ov))
+            self.assertEqual((ov["input_rects"], ov["bounding_is_outlines"]), (0, True), (when, ov))
+            self.assertEqual(bool(ov["state"]["outlines"]), mapped, when)
+        self.assertEqual((r["overlay"]["rootxy"], r["overlay"]["size"]), ([589, 200], [102, 52]))
+        print("overlay ids: titled %s, shaped %s, tk winfo_id %s, wm frame %s" % (
+            r["overlay"]["titled"], r["overlay"]["shaped"], r["overlay"]["tk_id"], r["overlay"]["wm_frame"]))
 
 if __name__ == "__main__":
     unittest.main()

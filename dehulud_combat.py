@@ -621,6 +621,17 @@ class XShape:
         self.xext.XShapeCombineRectangles(self.dpy, window, kind, 0, 0, arr, len(rects), 0, 0)  # ShapeSet, Unsorted
         self.x11.XFlush(self.dpy)
 
+    def top_level(self, window):
+        """The window on the root that holds `window` (its parent, or itself when its parent is the root), as
+        the X server sees it now; 0 when the server does not know `window`."""
+        root, parent, children, n = ctypes.c_ulong(0), ctypes.c_ulong(0), ctypes.c_void_p(None), ctypes.c_uint(0)
+        if not window or not self.x11.XQueryTree(self.dpy, window, ctypes.byref(root), ctypes.byref(parent),
+                                                 ctypes.byref(children), ctypes.byref(n)):
+            return 0
+        if children.value:
+            self.x11.XFree(children)
+        return window if parent.value in (0, root.value) else parent.value
+
     def close(self):
         if self.dpy:
             self.x11.XCloseDisplay(self.dpy)
@@ -637,6 +648,10 @@ def xshape(display_name):
         x11, xext = ctypes.CDLL("libX11.so.6"), ctypes.CDLL("libXext.so.6")
         x11.XOpenDisplay.restype, x11.XOpenDisplay.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
         x11.XCloseDisplay.argtypes = x11.XFlush.argtypes = [ctypes.c_void_p]
+        x11.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                   ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                                   ctypes.POINTER(ctypes.c_uint)]
+        x11.XFree.argtypes = [ctypes.c_void_p]
         xext.XShapeQueryExtension.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
                                               ctypes.POINTER(ctypes.c_int)]
         xext.XShapeQueryVersion.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
@@ -683,13 +698,15 @@ class OverlayWindow:
         top.title(OVERLAY_TITLE)
         self.canvas = tk.Canvas(top, width=w, height=h, bg=OUTLINE, highlightthickness=0)
         self.canvas.pack()
-        # Tk creates the X window it maps (the toplevel's wrapper, `wm frame`) on the first map: map it once off
-        # every screen, shape it (empty: nothing of it is shown), unmap it, then put it in its place.
+        # Tk maps a toplevel through a wrapper window (titled, a child of the root) that it creates on the first
+        # map: map it once off every screen, ask the server which window on the root holds the toplevel, shape
+        # that one (empty: nothing of it is shown), unmap it, then put it in its place. (`wm frame` does not
+        # name it reliably: Tk 9 answers with the toplevel's own window, whose shape the wrapper ignores.)
         top.geometry("%dx%d+%d+%d" % (w, h, -w - 10000, -h - 10000))
         top.deiconify()
         top.update_idletasks()
-        self.xid = int(top.wm_frame(), 16)
-        root.winfo_pointerxy()               # a round trip: Tk's requests reach the server before the shapes
+        root.winfo_pointerxy()               # a round trip: Tk's requests reach the server before our queries
+        self.xid = xs.top_level(int(top.winfo_id()))
         if not self.xid:                     # never hand Xlib a window id of 0 (its error would end the program)
             top.destroy()
             raise NoOverlay("no X window for the overlay")
@@ -708,6 +725,7 @@ class OverlayWindow:
         if view.empty() or not outlines:
             if self.mapped:
                 self.top.withdraw()
+                self.xs.combine(self.xid, SHAPE_BOUNDING, [])   # the server's shape follows: nothing
             self.mapped, self.outlines, self.fills = False, [], []
             return
         changed = not self.mapped or outlines != self.outlines or fills != self.fills
@@ -731,6 +749,13 @@ class OverlayWindow:
 
     def close(self):
         self.xs.close()
+
+
+def help_shown(detail, overlay_ok):
+    """What Help / details shows: the reading's detail, else this file's help; without an overlay always followed
+    by the line that says why there are no damage numbers."""
+    text = detail or __doc__
+    return text if overlay_ok else text.rstrip("\n") + "\n" + NO_SHAPE
 
 
 DEFAULTS = {"x": None, "y": None, "frame": False, "worm": True, "damage_taken": True, "damage_dealt": True}
@@ -859,11 +884,11 @@ class Window:
 
     def show_help(self):
         from tkinter import messagebox
-        messagebox.showinfo(APP, self.reading.detail or self.help_text(), parent=self.root)
+        messagebox.showinfo(APP, self.help_text(), parent=self.root)
 
     def help_text(self):
-        """The help text: this file's, and without an overlay the line that says why."""
-        return __doc__ if self.overlay is not None else __doc__.rstrip("\n") + "\n" + NO_SHAPE
+        """What Help / details shows now (see help_shown)."""
+        return help_shown(self.reading.detail, self.overlay is not None)
 
     def _menu(self, e):
         self.menu.tk_popup(e.x_root, e.y_root)

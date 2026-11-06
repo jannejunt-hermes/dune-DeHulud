@@ -353,8 +353,8 @@ class FakeToplevel:
     def __init__(self, root):
         self.root, self.calls = root, []
 
-    def wm_frame(self):
-        return "0x1e00007"
+    def winfo_id(self):
+        return 0x1e00006                         # Tk's own window; the server holds it in 0x1e00007 (see FakeXShape)
 
     def __getattr__(self, name):                 # withdraw, deiconify, lift, overrideredirect, title, ...
         return lambda *a, **k: self.calls.append((name,) + a)
@@ -364,7 +364,10 @@ class FakeXShape:
     """Records the shapes set, in order: (window, kind, rects)."""
 
     def __init__(self):
-        self.calls, self.closed = [], False
+        self.calls, self.closed, self.tree = [], False, {0x1e00006: 0x1e00007}
+
+    def top_level(self, window):
+        return self.tree.get(window, 0)
 
     def combine(self, window, kind, rects):
         self.calls.append((window, kind, [tuple(r) for r in rects]))
@@ -577,7 +580,8 @@ class TkWindow(unittest.TestCase):
         w, tk = self.window({}, meter=meter)
         top, xid = tk.top, 0x1e00007
         # created unmapped, override-redirect, on top, titled, placed once; empty input and bounding shapes
-        # (mapped once off every screen so that Tk creates the X window it maps, shaped, unmapped, then placed)
+        # (mapped once off every screen so that Tk creates the X window it maps, that window, the one on the root
+        # holding Tk's own window, shaped, unmapped, then placed)
         self.assertEqual(top.calls, [("withdraw",), ("overrideredirect", True), ("title", dehulud.OVERLAY_TITLE),
                                      ("geometry", "202x102+-10202+-10102"), ("deiconify",), ("update_idletasks",),
                                      ("withdraw",), ("geometry", "202x102+859+270"), ("attributes", "-topmost", True)])
@@ -593,8 +597,9 @@ class TkWindow(unittest.TestCase):
         for _ in range(4):                       # ages 1..4: the same shape, only the colour fades
             w.tick()
         self.assertEqual((top.calls, self.xs.calls), ([], []))
-        w.tick()                                 # removed on its fifth poll: unmapped
+        w.tick()                                 # removed on its fifth poll: unmapped, the server's shape empty
         self.assertEqual((top.calls, w.overlay_state()["mapped"]), ([("withdraw",)], False))
+        self.assertEqual(self.xs.calls, [(xid, dehulud.SHAPE_BOUNDING, [])])
         w.tick()                                 # unreadable: still nothing
         self.assertEqual(top.calls, [("withdraw",)])
         w.quit()
@@ -617,11 +622,21 @@ class TkWindow(unittest.TestCase):
             self.assertFalse(self.saved()[TAKEN])
             self.assertTrue(w.help_text().endswith("\n" + dehulud.NO_SHAPE))
             dehulud.save_config(self.path, DEFAULTS)
+        meter = Meter([dehulud.Reading("no permission", detail="FIX: sudo sysctl")])
+        with mock.patch("sys.stderr", io.StringIO()):
+            w, tk = self.window({}, meter=meter, shape=False)
+        w.tick()
+        shown = []
+        box = mock.Mock(showinfo=lambda title, message, **kw: shown.append(message))
+        with mock.patch.dict("sys.modules", {"tkinter": mock.Mock(messagebox=box), "tkinter.messagebox": box}):
+            w.show_help()
+        self.assertEqual(shown, ["FIX: sudo sysctl\n" + dehulud.NO_SHAPE])
         w, tk = self.window({})
         self.assertNotIn(dehulud.NO_SHAPE, w.help_text())
-        # Tk gives no X window for the overlay: no overlay (never a shape request for window 0)
+        # the server knows no window for the overlay: no overlay (never a shape request for window 0)
         err = io.StringIO()
-        with mock.patch.object(FakeToplevel, "wm_frame", lambda self: "0x0"), mock.patch("sys.stderr", err):
+        self.xs.tree.clear()
+        with mock.patch("sys.stderr", err):
             w, tk = self.window({})
         self.assertEqual((w.overlay_state(), err.getvalue(), self.xs.calls[-2:]),
                          (None, dehulud.NO_SHAPE + "\n", [(0x1e00007, dehulud.SHAPE_INPUT, []),
@@ -737,6 +752,28 @@ class XShapeLoader(unittest.TestCase):
         xs.close()
         xs.close()
         x11.XCloseDisplay.assert_called_once_with(0x1234)
+
+    def test_top_level_is_the_window_on_the_root(self):
+        x11, xext = self.fake_libs()
+        with mock.patch("ctypes.CDLL", side_effect=[x11, xext]):
+            xs = dehulud.xshape(":7")
+        tree = {0x506: 0x507, 0x507: 0x100, 0x100: 0}           # Tk's window -> its wrapper -> the root
+
+        def query_tree(dpy, window, root, parent, children, n):
+            if window not in tree:
+                return 0                                         # BadWindow is not asked for: unknown = 0
+            root._obj.value, parent._obj.value = 0x100, tree[window]
+            return 1
+        x11.XQueryTree.side_effect = query_tree
+        self.assertEqual([xs.top_level(w) for w in (0x506, 0x507, 0x999, 0)], [0x507, 0x507, 0, 0])
+        self.assertEqual(x11.XQueryTree.call_count, 3)          # never asked about window 0
+
+    def test_help_names_the_missing_shape_whatever_it_shows(self):
+        doc = dehulud.__doc__
+        self.assertEqual(dehulud.help_shown("", True), doc)
+        self.assertEqual(dehulud.help_shown("FIX: sudo sysctl", True), "FIX: sudo sysctl")
+        self.assertEqual(dehulud.help_shown("", False), doc.rstrip("\n") + "\n" + dehulud.NO_SHAPE)
+        self.assertEqual(dehulud.help_shown("FIX: sudo sysctl", False), "FIX: sudo sysctl\n" + dehulud.NO_SHAPE)
 
     def test_canvas_items_outlines_first(self):
         self.assertEqual(dehulud.overlay_canvas_items([(0, 0, 4, 3), (1, 1, 2, 2)], [(1, 1, 2, 1, "#ff4d3d")]),

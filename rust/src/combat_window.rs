@@ -63,6 +63,13 @@ pub fn flip(cfg: &mut Config, off: &mut Features, view: &mut Overlay, f: Feature
     view.reset(f);
 }
 
+/// What Help / details shows: the reading's detail, else the help text; without an overlay always followed by
+/// the line that says why there are no damage numbers.
+pub fn help_shown(detail: &str, help: &str, overlay_ok: bool) -> String {
+    let text = if detail.is_empty() { help } else { detail };
+    if overlay_ok { text.to_string() } else { format!("{}\n{NO_SHAPE}", text.trim_end_matches('\n')) }
+}
+
 /// Whether the server can shape a window's bounding and input region (SHAPE 1.1 or later).
 fn has_shape(conn: &impl Connection) -> bool {
     if crate::testhook::no_shape() || !matches!(conn.extension_information(shape::X11_EXTENSION_NAME), Ok(Some(_))) {
@@ -269,7 +276,6 @@ impl<'m> Window<'m> {
             w.create_overlay()?;
         } else {
             eprintln!("{NO_SHAPE}");
-            w.help_text = format!("{}\n{NO_SHAPE}", w.help_text);
         }
         x(w.c.conn.flush())?;
         Ok(w)
@@ -315,6 +321,8 @@ impl<'m> Window<'m> {
         if self.view.is_empty() || outlines.is_empty() {
             if was_mapped {
                 x(conn.unmap_window(win))?;
+                // the server's shape follows the view: nothing
+                x(conn.shape_rectangles(shape::SO::SET, shape::SK::BOUNDING, ClipOrdering::UNSORTED, win, 0, 0, &[]))?;
             }
             self.overlay = Some(OverlayWin { win, geo, mapped: false, outlines: Vec::new(), fills: Vec::new() });
             return Ok(());
@@ -781,7 +789,7 @@ impl<'m> Window<'m> {
 
     fn show_help(&mut self) -> Res<()> {
         self.close_help()?;
-        let text = if self.reading.detail.is_empty() { self.help_text.clone() } else { self.reading.detail.clone() };
+        let text = help_shown(&self.reading.detail, &self.help_text, self.overlay.is_some());
         let mut lines = wrap(&text, 80);
         lines.push(String::new());
         lines.push("Click here or press a key to close.".to_string());
@@ -1099,6 +1107,15 @@ mod tests {
         let status = all.iter().find(|s| s.0 == Section::Status).unwrap().1;
         assert!(status + 8 - SMALL.ascent / 2 + SMALL.height <= h);
         assert!(9 - SMALL.ascent / 2 >= 0 && 9 - SMALL.ascent / 2 + SMALL.height <= sections::HEADER_H);
+    }
+
+    #[test]
+    fn help_names_the_missing_shape_whatever_it_shows() {
+        let usage = "usage\nlines\n";
+        assert_eq!(help_shown("", usage, true), usage);
+        assert_eq!(help_shown("FIX: sudo sysctl", usage, true), "FIX: sudo sysctl");
+        assert_eq!(help_shown("", usage, false), format!("usage\nlines\n{NO_SHAPE}"));
+        assert_eq!(help_shown("FIX: sudo sysctl", usage, false), format!("FIX: sudo sysctl\n{NO_SHAPE}"));
     }
 
     #[test]

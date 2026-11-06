@@ -636,6 +636,9 @@ fn probe_inside_owned_compositor() {
                 && (0..ow * oh).all(|k| !shaped[k] || filled[k] || opx[k] == 0x0b0c0d);
             p.check(ok, format!("step {step}: overlay pixels"));
             p.keep(overlay, &format!("overlay-{step}.ppm"));
+        } else {
+            let (_, bits) = p.shape_bits(overlay, shape::SK::BOUNDING, ow, oh);
+            p.check(!bits.contains(&true), format!("step {step}: unmapped, bounding shape empty"));
         }
         p.wait("one more tick", p.n(), |_| true);
         let Some(Value::Array(sh)) = ev.get("shown") else { unreachable!() };
@@ -711,6 +714,8 @@ fn probe_inside_owned_compositor() {
         ages == ["#ff4d3d", "#ff4d3d", "#b63a2f", "#792923", "#3c1917", "gone"],
         format!("fade of -37 by poll: {ages:?}"),
     );
+    let (_, bits) = p.shape_bits(overlay, shape::SK::BOUNDING, ow, oh);
+    p.check(!p.viewable(overlay) && !bits.contains(&true), "expired: unmapped, bounding shape empty".into());
     let n = p.n();
     p.set("step=3"); // back to the reading with a detail for Help / details
     p.wait(
@@ -797,6 +802,8 @@ fn probe_inside_owned_compositor() {
     click(&p, 80); // taken off: every switch off, no polls from here
     std::thread::sleep(Duration::from_millis(300));
     p.check(!p.viewable(overlay), "every switch off: the overlay is unmapped".into());
+    let (_, bits) = p.shape_bits(overlay, shape::SK::BOUNDING, ow, oh);
+    p.check(!bits.contains(&true), "every switch off: bounding shape empty".into());
     let ev = click(&p, 80);
     p.check(!taken(&ev) && !mapped(&ev), "all off, then taken on: no old number".into());
     click(&p, 10);
@@ -940,6 +947,7 @@ fn probe_inside_owned_compositor() {
         format!("trace={}", ns.join("trace.jsonl").display()),
         "no_shape=1".into(),
         "reading=no permission|-|-|right-click||37|120/40".into(),
+        "reading=no permission|-|-|right-click|FIX: sudo sysctl|37|120/40".into(),
         "step=0".into(),
     ] {
         q.set(&line);
@@ -970,6 +978,20 @@ fn probe_inside_owned_compositor() {
     q.menu(nwin, "Help / details");
     let ev = q.wait("a help window", n, |v| matches!(v.get("help"), Some(Value::Int(Some(_)))));
     let help_ok = matches!(ev.get("help_text"), Some(Value::Str(t)) if t.ends_with("\ndamage numbers need the X SHAPE extension"));
+    // a reading with a detail: the help shows the detail, still followed by the line
+    let n = q.n();
+    q.set("step=1");
+    q.wait("the detail", n, |v| v.get("event") == Some(&Value::Str("tick".into())));
+    let n = q.n();
+    q.menu(nwin, "Help / details");
+    let ev = q.wait(
+        "a help window with the detail",
+        n,
+        |v| matches!(v.get("help_text"), Some(Value::Str(t)) if t.starts_with("FIX")),
+    );
+    let help_ok = help_ok
+        && ev.get("help_text")
+            == Some(&Value::Str("FIX: sudo sysctl\ndamage numbers need the X SHAPE extension".into()));
     let no_overlay = first.get("overlay") == Some(&Value::Null) && q.find("DeHulud Combat damage").is_none();
     q.set("stop=1");
     let deadline = Instant::now() + Duration::from_secs(10);
