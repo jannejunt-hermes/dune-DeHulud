@@ -1,8 +1,15 @@
-//! DeHulud Combat's X11 window: 180 px wide, always on top, frameless (override-redirect, so it is drawn above
-//! fullscreen games). A header row with the three section switches, then the sections that are on (worm meter,
-//! Damage taken, Damage dealt, see [`crate::sections`]) and the status line; the height follows the sections and
-//! the top-left corner stays. Drag with the left button, click a switch to flip it, right-click menu; position,
-//! frame flag and switches kept in its config file ([`crate::combat_config`]).
+//! DeHulud Combat's X11 windows.
+//!
+//! The meter box: 180 px wide, always on top, frameless (override-redirect, so it is drawn above fullscreen
+//! games). A header row with the three switches, the worm meter when it is on and the status line (see
+//! [`crate::sections`]); the height follows the switches and the top-left corner stays. Drag with the left button,
+//! click a switch to flip it, right-click menu; position, frame flag and switches kept in its config file
+//! ([`crate::combat_config`]).
+//!
+//! The damage overlay ([`crate::overlay`]): a second override-redirect window on the same connection, cut to the
+//! outlines of its numbers with the X SHAPE extension (bounding shape = the outline rectangles, input shape
+//! empty), placed once at start-up, mapped and raised only while it has a number to show. Without SHAPE there is
+//! no overlay and the damage features are not read.
 //!
 //! Drawn like DeHulud's window ([`crate::window`], whose colours, menu and help-text helpers it uses): the
 //! built-in bitmap font into a pixmap copied to the window, no server-side fonts, no toolkit, the display only
@@ -12,9 +19,11 @@ use crate::combat_config::{self as config, Config, Monitor};
 use crate::display::{self, Connected, LocalDisplay};
 use crate::font::{BIG, Font, SMALL};
 use crate::meter::{POLL, Poll, Reading};
+use crate::overlay::{
+    self, Geometry, NO_SHAPE, OUTLINE, OVERLAY_HEALTH, OVERLAY_SHIELD, OVERLAY_TAKEN, Overlay, Rect, read_features,
+};
 use crate::sections::{
-    self, AMBER, DASH, DamageView, FADE, Feature, Features, LABEL, MAX_H, OFF, Section, TEAL, damage_cells,
-    header_cells, header_zone, is_click, layout,
+    self, Feature, Features, LABEL, MAX_H, OFF, Section, header_cells, header_zone, is_click, layout,
 };
 use crate::window::{
     BAR, BAR_BG, BAR_EDGE, BG, CHECK_W, HINT, Item, MENU_BG, MENU_FG, MENU_HI, PCT, Res, STATUS, hex, menu_layout,
@@ -27,9 +36,10 @@ use x11rb::connection::{Connection, RequestConnection};
 use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
 use x11rb::protocol::Event;
 use x11rb::protocol::randr::{self, ConnectionExt as _};
+use x11rb::protocol::shape::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
-    AtomEnum, ButtonPressEvent, ChangeGCAux, ConfigureWindowAux, ConnectionExt as _, CreateGCAux, CreateWindowAux,
-    EventMask, GrabMode, Gravity, PropMode, Rectangle, WindowClass,
+    AtomEnum, ButtonPressEvent, ChangeGCAux, ClipOrdering, ConfigureWindowAux, ConnectionExt as _, CreateGCAux,
+    CreateWindowAux, EventMask, GrabMode, Gravity, PropMode, Rectangle, StackMode, WindowClass,
 };
 use x11rb::wrapper::ConnectionExt as _;
 
@@ -44,13 +54,31 @@ pub fn enabled(cfg: &Config, off: Features) -> Features {
 }
 
 /// What a click on the switch of `f` changes: the switch is set to the opposite of what is shown (and saved by
-/// the caller), a flag's override of it ends, and the section's numbers are forgotten at once (with every
-/// section off no poll would clear them).
-pub fn flip(cfg: &mut Config, off: &mut Features, view: &mut DamageView, f: Feature) {
+/// the caller), a flag's override of it ends, and its overlay column is cleared at once (with every switch off no
+/// poll would clear it).
+pub fn flip(cfg: &mut Config, off: &mut Features, view: &mut Overlay, f: Feature) {
     let on = !enabled(cfg, *off).has(f);
     cfg.sections.set(f, on);
     off.set(f, false);
     view.reset(f);
+}
+
+/// Whether the server can shape a window's bounding and input region (SHAPE 1.1 or later).
+fn has_shape(conn: &impl Connection) -> bool {
+    if crate::testhook::no_shape() || !matches!(conn.extension_information(shape::X11_EXTENSION_NAME), Ok(Some(_))) {
+        return false;
+    }
+    conn.shape_query_version()
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .is_some_and(|v| (v.major_version, v.minor_version) >= (1, 1))
+}
+
+fn x_rects(rects: impl IntoIterator<Item = Rect>) -> Vec<Rectangle> {
+    rects
+        .into_iter()
+        .map(|(rx, ry, w, h)| Rectangle { x: rx as i16, y: ry as i16, width: w as u16, height: h as u16 })
+        .collect()
 }
 
 struct Atoms {
@@ -82,6 +110,15 @@ struct HelpWin {
     lines: Vec<String>,
 }
 
+/// The damage overlay window and what was last sent to the server for it.
+struct OverlayWin {
+    win: u32,
+    geo: Geometry,
+    mapped: bool,
+    outlines: Vec<Rect>,
+    fills: Vec<(Rect, u32)>,
+}
+
 /// The meter window.
 pub struct Window<'m> {
     c: Connected,
@@ -109,7 +146,10 @@ pub struct Window<'m> {
     done: bool,
     /// Sections switched off by a command-line flag for this run (never saved).
     off: Features,
-    view: DamageView,
+    /// The numbers the overlay shows.
+    view: Overlay,
+    /// None: no overlay possible (no SHAPE extension); the damage features are then not read.
+    overlay: Option<OverlayWin>,
     /// Where the left button went down (root coordinates), and whether it has become a drag.
     press: (i32, i32),
     moved: bool,
@@ -166,10 +206,12 @@ impl<'m> Window<'m> {
             type_dialog: a[8],
             frame_extents: a[9],
         };
-        // allocated once: the fade steps of the damage numbers too
-        let mut palette =
-            vec![BG, LABEL, BAR_EDGE, BAR_BG, HINT, PCT, STATUS, MENU_BG, MENU_FG, MENU_HI, DASH, 0xc7df7a, OFF];
-        for (_, steps) in FADE {
+        // allocated once: the worm bar's four colours (see window::bar_color), the overlay's colours and fade steps
+        let mut palette = vec![
+            BG, LABEL, BAR_EDGE, BAR_BG, HINT, PCT, STATUS, MENU_BG, MENU_FG, MENU_HI, OFF, 0x85969d, 0xc7df7a,
+            0xe8bf70, 0xee7868,
+        ];
+        for steps in [[OUTLINE; 5], OVERLAY_TAKEN, OVERLAY_HEALTH, OVERLAY_SHIELD] {
             for rgb in steps {
                 if !palette.contains(&rgb) {
                     palette.push(rgb);
@@ -214,7 +256,8 @@ impl<'m> Window<'m> {
             help_text_shown: String::new(),
             done: false,
             off,
-            view: DamageView::default(),
+            view: Overlay::default(),
+            overlay: None,
             press: (0, 0),
             moved: false,
             h: 0,
@@ -222,8 +265,89 @@ impl<'m> Window<'m> {
         w.h = layout(w.enabled()).1;
         w.place();
         w.create_main()?;
+        if has_shape(&w.c.conn) {
+            w.create_overlay()?;
+        } else {
+            eprintln!("{NO_SHAPE}");
+            w.help_text = format!("{}\n{NO_SHAPE}", w.help_text);
+        }
         x(w.c.conn.flush())?;
         Ok(w)
+    }
+
+    /// The overlay window, unmapped: placed once on the primary monitor, input shape empty.
+    fn create_overlay(&mut self) -> Res<()> {
+        let screen = (0, 0, self.screen_size.0, self.screen_size.1);
+        let geo = overlay::geometry(overlay::monitor(&self.monitors(), screen));
+        let conn = &self.c.conn;
+        let win = x(conn.generate_id())?;
+        let aux = CreateWindowAux::new()
+            .background_pixel(self.px(OUTLINE))
+            .override_redirect(1)
+            .event_mask(EventMask::EXPOSURE);
+        x(conn.create_window(
+            x11rb::COPY_DEPTH_FROM_PARENT,
+            win,
+            self.root,
+            geo.x as i16,
+            geo.y as i16,
+            geo.w as u16,
+            geo.h as u16,
+            0,
+            WindowClass::INPUT_OUTPUT,
+            x11rb::COPY_FROM_PARENT,
+            &aux,
+        ))?;
+        self.describe(win, overlay::TITLE)?;
+        x(conn.shape_rectangles(shape::SO::SET, shape::SK::INPUT, ClipOrdering::UNSORTED, win, 0, 0, &[]))?;
+        x(conn.shape_rectangles(shape::SO::SET, shape::SK::BOUNDING, ClipOrdering::UNSORTED, win, 0, 0, &[]))?;
+        self.overlay = Some(OverlayWin { win, geo, mapped: false, outlines: Vec::new(), fills: Vec::new() });
+        Ok(())
+    }
+
+    /// Brings the overlay window in line with `view`: unmapped while it is empty; otherwise its bounding shape is
+    /// the outline rectangles, it is mapped and raised (when it was not mapped), and its numbers are drawn.
+    fn update_overlay(&mut self) -> Res<()> {
+        let Some(ov) = &self.overlay else { return Ok(()) };
+        let (win, geo, was_mapped) = (ov.win, ov.geo, ov.mapped);
+        let (outlines, fills) = overlay::rects(&self.view, geo.s, geo.o);
+        let conn = &self.c.conn;
+        if self.view.is_empty() || outlines.is_empty() {
+            if was_mapped {
+                x(conn.unmap_window(win))?;
+            }
+            self.overlay = Some(OverlayWin { win, geo, mapped: false, outlines: Vec::new(), fills: Vec::new() });
+            return Ok(());
+        }
+        if !was_mapped || outlines != ov.outlines {
+            let rects = x_rects(outlines.iter().copied());
+            x(conn.shape_rectangles(shape::SO::SET, shape::SK::BOUNDING, ClipOrdering::UNSORTED, win, 0, 0, &rects))?;
+        }
+        if !was_mapped {
+            x(conn.map_window(win))?;
+            x(conn.configure_window(win, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE)))?;
+        }
+        let changed = !was_mapped || outlines != ov.outlines || fills != ov.fills;
+        self.overlay = Some(OverlayWin { win, geo, mapped: true, outlines, fills });
+        if changed {
+            self.draw_overlay()?;
+        }
+        Ok(())
+    }
+
+    /// The overlay's numbers: every outline rectangle first, then every fill rectangle.
+    fn draw_overlay(&self) -> Res<()> {
+        let Some(ov) = self.overlay.as_ref().filter(|o| o.mapped) else { return Ok(()) };
+        self.fill(ov.win, OUTLINE, &x_rects(ov.outlines.iter().copied()))?;
+        let mut i = 0;
+        while i < ov.fills.len() {
+            // consecutive fills of one colour in one request, in list order
+            let rgb = ov.fills[i].1;
+            let n = ov.fills[i..].iter().take_while(|f| f.1 == rgb).count();
+            self.fill(ov.win, rgb, &x_rects(ov.fills[i..i + n].iter().map(|f| f.0)))?;
+            i += n;
+        }
+        Ok(())
     }
 
     /// The sections shown: switched on in the config file and not switched off by a flag.
@@ -377,6 +501,7 @@ impl<'m> Window<'m> {
         flip(&mut self.cfg, &mut self.off, &mut self.view, f);
         self.meter.reset(f); // the damage readers forget it too
         self.save();
+        self.update_overlay()?;
         self.resize()?;
         crate::testhook::trace(|| self.state_json("switched"));
         Ok(())
@@ -444,18 +569,8 @@ impl<'m> Window<'m> {
                     let pct_top = y + 12 - BIG.height / 2;
                     self.text(pm, PCT, &BIG, &pct, W - 6 - BIG.width(&pct, false), pct_top, false)?;
                 }
-                Section::Taken => self.text(pm, LABEL, &SMALL, "TAKEN", 6, y + mid, true)?,
-                Section::Dealt => {
-                    self.text(pm, LABEL, &SMALL, "DEALT", 6, y + mid, true)?;
-                    self.text(pm, AMBER, &SMALL, "HEALTH", 122 - SMALL.width("HEALTH", false), y + mid, false)?;
-                    self.text(pm, TEAL, &SMALL, "SHIELD", 174 - SMALL.width("SHIELD", false), y + mid, false)?;
-                }
                 Section::Status => self.text(pm, STATUS, &SMALL, &status, 6, y + 8 - SMALL.ascent / 2, false)?,
             }
-        }
-        for (section, right, top, text, rgb) in damage_cells(&self.view, on) {
-            let y = shown_sections.iter().find(|s| s.0 == section).map_or(0, |s| s.1);
-            self.text(pm, rgb, &BIG, &text, right - BIG.width(&text, false), y + top, false)?;
         }
         x(self.c.conn.copy_area(pm, self.win, self.gc, 0, 0, 0, 0, W as u16, self.h as u16))?;
         Ok(())
@@ -522,6 +637,9 @@ impl<'m> Window<'m> {
         self.close_menu()?;
         self.close_help()?;
         self.destroy_main()?;
+        if let Some(ov) = self.overlay.take() {
+            x(self.c.conn.destroy_window(ov.win))?;
+        }
         x(self.c.conn.flush())?;
         self.done = true;
         Ok(())
@@ -735,14 +853,15 @@ impl<'m> Window<'m> {
             crate::testhook::trace(|| self.state_json("tick"));
             return Ok(());
         }
-        let r = self.meter.poll_enabled(on);
+        // without an overlay the damage numbers have nowhere to go: they are not read
+        let r = self.meter.poll_enabled(read_features(on, self.overlay.is_some()));
         if !r.detail.is_empty() && self.said.as_deref() != Some(r.detail.as_str()) {
             eprintln!("{}", r.detail);
             self.said = Some(r.detail.clone());
         }
-        let before = self.view.clone();
         self.view.step(r.taken, r.dealt, on);
-        let changed = r != self.reading || self.view != before; // numbers age (fade) every poll
+        self.update_overlay()?; // numbers age (fade) every poll
+        let changed = r != self.reading;
         self.reading = r;
         if changed {
             self.draw_main()?;
@@ -815,6 +934,8 @@ impl<'m> Window<'m> {
                     self.draw_menu()?;
                 } else if self.help.as_ref().is_some_and(|h| h.win == e.window) {
                     self.draw_help()?;
+                } else if self.overlay.as_ref().is_some_and(|o| o.win == e.window) {
+                    self.draw_overlay()?;
                 }
             }
             Event::ButtonPress(e) => self.on_press(&e)?,
@@ -911,14 +1032,31 @@ impl<'m> Window<'m> {
             .collect();
         let help = self.help.as_ref().map_or("null".to_string(), |h| h.win.to_string());
         let on: Vec<String> = self.enabled().keys().iter().map(|k| quote(k)).collect();
-        let cells: Vec<String> = damage_cells(&self.view, self.enabled())
-            .iter()
-            .map(|(s, x, y, t, rgb)| format!("[{}, {x}, {y}, {}, {}]", quote(s.name()), quote(t), quote(&hex(*rgb))))
-            .collect();
+        let overlay = self.overlay.as_ref().map_or("null".to_string(), |o| {
+            let g = o.geo;
+            let outlines: Vec<String> = o.outlines.iter().map(|(a, b, c, d)| format!("[{a}, {b}, {c}, {d}]")).collect();
+            let fills: Vec<String> = o
+                .fills
+                .iter()
+                .map(|((a, b, c, d), rgb)| format!("[{a}, {b}, {c}, {d}, {}]", quote(&hex(*rgb))))
+                .collect();
+            format!(
+                "{{\"geometry\": [{}, {}, {}, {}, {}, {}], \"mapped\": {}, \"outlines\": [{}], \"fills\": [{}]}}",
+                g.x,
+                g.y,
+                g.w,
+                g.h,
+                g.s,
+                g.o,
+                o.mapped,
+                outlines.join(", "),
+                fills.join(", ")
+            )
+        });
         format!(
             "{{\"event\": {}, \"window\": {}, \"frame\": {}, \"pos\": [{}, {}], \"socket\": {}, \"shown\": [{}, {}, {}, {}], \
              \"fill\": {fill}, \"menu\": {menu}, \"items\": [{}], \"help\": {help}, \"help_text\": {}, \"monitors\": {}, \
-             \"size\": [{W}, {}], \"enabled\": [{}], \"cells\": [{}]}}",
+             \"size\": [{W}, {}], \"enabled\": [{}], \"overlay\": {overlay}}}",
             quote(event),
             self.win,
             self.cfg.frame,
@@ -933,8 +1071,7 @@ impl<'m> Window<'m> {
             quote(&self.help_text_shown),
             self.monitors().len(),
             self.h,
-            on.join(", "),
-            cells.join(", ")
+            on.join(", ")
         )
     }
 }
@@ -962,36 +1099,28 @@ mod tests {
         let status = all.iter().find(|s| s.0 == Section::Status).unwrap().1;
         assert!(status + 8 - SMALL.ascent / 2 + SMALL.height <= h);
         assert!(9 - SMALL.ascent / 2 >= 0 && 9 - SMALL.ascent / 2 + SMALL.height <= sections::HEADER_H);
-        assert!(sections::DEALT_TOPS[3] + BIG.height <= sections::DEALT_H);
-        assert!(sections::TAKEN_TOPS[3] + BIG.height <= sections::TAKEN_H);
-        assert!(122 - SMALL.width("HEALTH", false) > 6 + SMALL.width("DEALT", true));
     }
 
     #[test]
     fn flipping_a_switch() {
         let (mut cfg, mut off, mut view) =
-            (config::DEFAULTS, Features { worm: true, ..Features::NONE }, DamageView::default());
-        let numbers = |v: &mut DamageView| v.step(Some(Some(37.0)), Some((Some(120.0), Some(40.0))), Features::ALL);
-        let shown = |v: &DamageView, on| damage_cells(v, on).into_iter().map(|c| c.3).collect::<Vec<_>>();
+            (config::DEFAULTS, Features { worm: true, ..Features::NONE }, Overlay::default());
+        let numbers = |v: &mut Overlay| v.step(Some(Some(37.0)), Some((Some(120.0), Some(40.0))), Features::ALL);
+        let shown = |v: &Overlay| (v.taken.len(), v.dealt.len());
         numbers(&mut view);
-        // off and straight on again, no poll between: the old numbers are gone, '-' until the next poll
+        assert_eq!(shown(&view), (1, 2));
+        // off and straight on again, no poll between: that column is cleared at once, the other one stays
         flip(&mut cfg, &mut off, &mut view, Feature::Taken);
         flip(&mut cfg, &mut off, &mut view, Feature::Taken);
-        assert_eq!(shown(&view, enabled(&cfg, off)), ["-", "120", "40"]);
+        assert_eq!(shown(&view), (0, 2));
         flip(&mut cfg, &mut off, &mut view, Feature::Dealt);
+        assert!(view.is_empty() && !enabled(&cfg, off).dealt && !cfg.sections.dealt);
         flip(&mut cfg, &mut off, &mut view, Feature::Dealt);
-        assert_eq!(shown(&view, enabled(&cfg, off)), ["-", "-", "-"]);
-        // all off (no polls at all), then on again
-        numbers(&mut view);
-        for f in [Feature::Taken, Feature::Dealt, Feature::Taken, Feature::Dealt] {
-            flip(&mut cfg, &mut off, &mut view, f);
-        }
-        assert_eq!(shown(&view, enabled(&cfg, off)), ["-", "-", "-"]);
         // the worm switch: off by flag (file on); the click switches it on, ends the override, keeps the numbers
         assert!(!enabled(&cfg, off).worm && cfg.sections.worm);
         numbers(&mut view);
         flip(&mut cfg, &mut off, &mut view, Feature::Worm);
         assert!(enabled(&cfg, off).worm && !off.worm && cfg.sections.worm);
-        assert_eq!(shown(&view, Features::ALL), ["-37", "120", "40"]);
+        assert_eq!(shown(&view), (1, 2));
     }
 }

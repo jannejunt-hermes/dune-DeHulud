@@ -1,6 +1,7 @@
-"""DeHulud Combat's window sections: switches (config keys, flags, header clicks), layout, the damage display and the
-enabled set handed to the poll. The window is driven through a stand-in for tkinter that records what is drawn,
-so these run without a display; tests/test_gui.py builds the real Tk window on a private display."""
+"""DeHulud Combat's window: switches (config keys, flags, header clicks), layout, the damage overlay's window
+(shapes, map state, drawing, the X SHAPE layer) and the enabled set handed to the poll. The windows are driven
+through a stand-in for tkinter that records what is drawn and a stand-in for the X SHAPE connection, so these
+run without a display; tests/test_combat_gui.py builds the real Tk windows on a private display."""
 import io
 import json
 import os
@@ -14,9 +15,9 @@ import dehulud_combat as dehulud
 ALL = dehulud.ALL
 TAKEN, DEALT = "damage_taken", "damage_dealt"
 DEFAULTS = {"x": None, "y": None, "frame": False, "worm": True, "damage_taken": True, "damage_dealt": True}
-HEIGHTS = {(False, False, False): 18, (True, False, False): 62, (False, True, False): 98,
-           (False, False, True): 114, (True, True, False): 122, (True, False, True): 138,
-           (False, True, True): 174, (True, True, True): 198}
+HEIGHTS = {(False, False, False): 18, (True, False, False): 62, (False, True, False): 38,
+           (False, False, True): 38, (True, True, False): 62, (True, False, True): 62,
+           (False, True, True): 38, (True, True, True): 62}
 
 
 def features(worm, taken, dealt):
@@ -92,9 +93,8 @@ class Layout(unittest.TestCase):
             self.assertEqual(dehulud.layout(features(*combo))[1], height, combo)
 
     def test_sections_keep_their_order(self):
-        self.assertEqual(dehulud.layout(ALL)[0], [("header", 0), ("worm", 18), (TAKEN, 42), (DEALT, 102),
-                                                  ("status", 178)])
-        self.assertEqual(dehulud.layout(frozenset([DEALT]))[0], [("header", 0), (DEALT, 18), ("status", 94)])
+        self.assertEqual(dehulud.layout(ALL)[0], [("header", 0), ("worm", 18), ("status", 42)])
+        self.assertEqual(dehulud.layout(frozenset([DEALT]))[0], [("header", 0), ("status", 18)])
         self.assertEqual(dehulud.layout(frozenset())[0], [("header", 0)])
 
     def test_header_zones(self):
@@ -115,89 +115,13 @@ class Layout(unittest.TestCase):
                          [(6, "[ ] Worm", "#6b7174"), (60, "[x] Taken", "#d8cfb4"), (120, "[ ] Dealt", "#6b7174")])
 
 
-class DisplayList(unittest.TestCase):
+class Numbers(unittest.TestCase):
     def test_rounding_and_cap(self):
         n = dehulud.shown_number
         self.assertEqual([n(v) for v in (0, 0.49, 0.5, 1.5, 2.5, 36.6, 99999, 99999.4, 99999.5, 1e12)],
                          [None, None, 1, 2, 3, 37, 99999, 99999, 99999, 99999])
         self.assertEqual([n(v) for v in (-1, float("nan"), float("inf"), None, True)], [None] * 5)
 
-    def test_newest_first_at_most_four(self):
-        c = dehulud.Column()
-        for v in (1, 2, 3, 4, 5):
-            c.step((v,))
-        self.assertEqual(c.items, [(5, 0), (4, 1), (3, 2), (2, 3)])
-
-    def test_life_is_five_polls(self):
-        c = dehulud.Column()
-        c.step((37,))
-        ages = []
-        for _ in range(6):
-            ages.append([a for _, a in c.items])
-            c.step(())
-        self.assertEqual(ages, [[0], [1], [2], [3], [4], []])     # removed on its fifth poll
-
-    def test_fade_steps(self):
-        self.assertEqual(dehulud.FADE["#ee7868"], ("#ee7868", "#ee7868", "#af5d53", "#7b4741", "#47312f"))
-        self.assertEqual(dehulud.FADE["#e8bf70"], ("#e8bf70", "#e8bf70", "#ab8f58", "#786745", "#463f31"))
-        self.assertEqual(dehulud.FADE["#8ad4c8"], ("#8ad4c8", "#8ad4c8", "#699e96", "#4e706c", "#334342"))
-
-        def blend(rgb, k):                       # towards the background #1d1f21 at k percent
-            bg = (0x1d, 0x1f, 0x21)
-            ch = [int(rgb[i:i + 2], 16) for i in (1, 3, 5)]
-            return "#" + "".join("%02x" % round(b + (c - b) * k / 100) for c, b in zip(ch, bg))
-        for base, steps in dehulud.FADE.items():
-            self.assertEqual(list(steps[2:]), [blend(base, k) for k in (70, 45, 20)], base)
-
-    def test_dash_clears_and_nothing_to_show_is_empty(self):
-        c = dehulud.Column()
-        self.assertTrue(c.dash)                  # nothing read yet
-        c.step((12,))
-        self.assertEqual((c.dash, c.items), (False, [(12, 0)]))
-        c.step(None)
-        self.assertEqual((c.dash, c.items), (True, []))
-        c.step(())
-        self.assertEqual((c.dash, c.items), (False, []))
-        c.step((0.2,))                           # rounds to 0: not drawn, still a readable poll
-        self.assertEqual((c.dash, c.items), (False, []))
-
-    def test_cells(self):
-        v = dehulud.DamageView()
-        v.step(dehulud.Reading("on foot", taken=(37,), dealt=((120,), ())), ALL)
-        v.step(dehulud.Reading("on foot", taken=(12,), dealt=((84,), (40,))), ALL)
-        v.step(dehulud.Reading("on foot", taken=(), dealt=((), ())), ALL)
-        self.assertEqual(dehulud.damage_cells(v, ALL), [
-            (TAKEN, 174, 7, "-12", "#ee7868"), (TAKEN, 174, 20, "-37", "#af5d53"),
-            (DEALT, 122, 61, "84", "#e8bf70"), (DEALT, 122, 48, "120", "#ab8f58"),
-            (DEALT, 174, 61, "40", "#8ad4c8")])
-
-    def test_unreadable_and_unsupported_show_dash_in_the_newest_slot(self):
-        v = dehulud.DamageView()
-        v.step(dehulud.Reading("on foot", taken=(5,), dealt=((6,), (7,))), ALL)
-        v.step(dehulud.Reading("Unsupported game version", hint="PE 1"), ALL)
-        self.assertEqual(dehulud.damage_cells(v, ALL), [
-            (TAKEN, 174, 7, "-", "#85969d"), (DEALT, 122, 61, "-", "#85969d"), (DEALT, 174, 61, "-", "#85969d")])
-
-    def test_a_section_switched_off_forgets_its_numbers(self):
-        v = dehulud.DamageView()
-        v.step(dehulud.Reading("on foot", taken=(5,), dealt=((6,), ())), ALL)
-        v.step(dehulud.Reading("on foot", taken=(), dealt=((), ())), frozenset(["worm", DEALT]))
-        self.assertEqual(dehulud.damage_cells(v, frozenset(["worm", DEALT])), [(DEALT, 122, 61, "6", "#e8bf70")])
-        self.assertEqual(dehulud.damage_cells(v, ALL)[0], (TAKEN, 174, 7, "-", "#85969d"))
-
-    def test_reset_forgets_one_section(self):
-        v = dehulud.DamageView()
-        v.step(dehulud.Reading("on foot", taken=(5,), dealt=((6,), (7,))), ALL)
-        v.reset(TAKEN)
-        self.assertEqual([c[3] for c in dehulud.damage_cells(v, ALL)], ["-", "6", "7"])
-        v.reset(DEALT)
-        v.reset("worm")
-        self.assertEqual([c[3] for c in dehulud.damage_cells(v, ALL)], ["-", "-", "-"])
-
-    def test_five_digit_cap_fits_from_the_spec_column(self):
-        v = dehulud.DamageView()
-        v.step(dehulud.Reading("on foot", taken=(123456,), dealt=((1e9,), (99999.4,))), ALL)
-        self.assertEqual([c[3] for c in dehulud.damage_cells(v, ALL)], ["-99999", "99999", "99999"])
 
 
 class StubDamage(dehulud.NoDamage):
@@ -413,11 +337,40 @@ class FakeRoot:
     def winfo_screenheight(self):
         return 1080
 
+    def winfo_pointerxy(self):
+        return (0, 0)
+
     def destroy(self):
         self.destroyed = True
 
     def __getattr__(self, name):                 # resizable, protocol, withdraw, attributes, ...
         return lambda *a, **k: None
+
+
+class FakeToplevel:
+    """The overlay's Toplevel: records what Tk would do with it, in order."""
+
+    def __init__(self, root):
+        self.root, self.calls = root, []
+
+    def wm_frame(self):
+        return "0x1e00007"
+
+    def __getattr__(self, name):                 # withdraw, deiconify, lift, overrideredirect, title, ...
+        return lambda *a, **k: self.calls.append((name,) + a)
+
+
+class FakeXShape:
+    """Records the shapes set, in order: (window, kind, rects)."""
+
+    def __init__(self):
+        self.calls, self.closed = [], False
+
+    def combine(self, window, kind, rects):
+        self.calls.append((window, kind, [tuple(r) for r in rects]))
+
+    def close(self):
+        self.closed = True
 
 
 class FakeTk:
@@ -428,9 +381,17 @@ class FakeTk:
         self.root = FakeRoot()
         return self.root
 
+    def Toplevel(self, root):
+        self.top = FakeToplevel(root)
+        return self.top
+
     def Canvas(self, root, **kw):
-        self.canvas = FakeCanvas(root, **kw)
-        return self.canvas
+        c = FakeCanvas(root, **kw)
+        if isinstance(root, FakeToplevel):
+            self.ocanvas = c                     # the overlay's canvas
+        else:
+            self.canvas = c
+        return c
 
     def BooleanVar(self, value):
         return mock.Mock(get=lambda: value)
@@ -459,15 +420,17 @@ class Meter:
 class TkWindow(unittest.TestCase):
     def setUp(self):
         self.path = os.path.join(tempfile.mkdtemp(), "dehulud", "config.json")
-        patcher = mock.patch.object(dehulud, "monitors", return_value=[(0, 0, 1920, 1080, True)])
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.xs = FakeXShape()
+        for name, value in (("monitors", [(0, 0, 1920, 1080, True)]), ("xshape", self.xs)):
+            patcher = mock.patch.object(dehulud, name, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-    def window(self, cfg=None, off=(), meter=None):
+    def window(self, cfg=None, off=(), meter=None, shape=None):
         if cfg is not None:
             dehulud.save_config(self.path, dict(DEFAULTS, **cfg))
         tk = FakeTk()
-        w = dehulud.Window(tk, meter or Meter(), self.path, display=":9", off=frozenset(off))
+        w = dehulud.Window(tk, meter or Meter(), self.path, display=":9", off=frozenset(off), shape=shape)
         return w, tk
 
     def saved(self):
@@ -485,17 +448,21 @@ class TkWindow(unittest.TestCase):
             self.assertEqual((tk.canvas.height, tk.root.geometries[0].split("+")[0]),
                              (height, "180x%d" % height), combo)
         w, tk = self.window({}, off=["worm", DEALT])
-        self.assertEqual(tk.canvas.height, 98)
+        self.assertEqual(tk.canvas.height, 38)
 
     def test_click_on_a_switch_flips_it_saves_it_and_resizes(self):
         w, tk = self.window({"x": 100, "y": 200})
         self.click(w, 80, 9)                     # Taken
         self.assertEqual(w.enabled, frozenset(["worm", DEALT]))
         self.assertEqual(self.saved(), dict(DEFAULTS, x=100, y=200, damage_taken=False))
-        self.assertEqual((tk.canvas.height, tk.root.geometries[-1]), (138, "180x138"))  # size only: corner kept
+        self.assertEqual((tk.canvas.height, tk.root.geometries[-1]), (62, "180x62"))  # size only: corner kept
+        self.assertEqual(w.pos, (100, 200))
+        self.click(w, 10, 9)                     # Worm: header + status line
+        self.assertEqual((tk.canvas.height, tk.root.geometries[-1]), (38, "180x38"))
         self.assertEqual(w.pos, (100, 200))
         self.click(w, 80, 9)
-        self.assertEqual((self.saved()[TAKEN], tk.canvas.height), (True, 198))
+        self.click(w, 10, 9)
+        self.assertEqual((self.saved()[TAKEN], tk.canvas.height), (True, 62))
 
     def test_all_off_is_header_only_and_reads_nothing(self):
         meter = Meter()
@@ -528,7 +495,7 @@ class TkWindow(unittest.TestCase):
         self.assertTrue(self.saved()["worm"])
         w, tk = self.window({"worm": False}, off=["worm"])
         self.click(w, 10, 9)                     # off by flag and by file: the click switches it on
-        self.assertEqual((self.saved()["worm"], tk.canvas.height), (True, 198))
+        self.assertEqual((self.saved()["worm"], tk.canvas.height), (True, 62))
 
     def test_drag_in_the_header_moves_and_flips_nothing(self):
         w, tk = self.window({"x": 100, "y": 200})
@@ -559,45 +526,111 @@ class TkWindow(unittest.TestCase):
         w.tick()
         w.tick()
         texts = tk.canvas.texts()
-        self.assertEqual(texts[:3], [((6, 9), "[x] Worm", "#d8cfb4"), ((60, 9), "[x] Taken", "#d8cfb4"),
-                                     ((120, 9), "[x] Dealt", "#d8cfb4")])
-        self.assertIn(((6, 30), "WORM", "#d8cfb4"), texts)
-        self.assertIn(((174, 30), "42%", "#f0f0f0"), texts)
-        self.assertIn(((6, 54), "TAKEN", "#d8cfb4"), texts)
-        self.assertIn(((122, 114), "HEALTH", "#e8bf70"), texts)
-        self.assertIn(((174, 114), "SHIELD", "#8ad4c8"), texts)
-        self.assertIn(((6, 186), "on foot", "#aab4b8"), texts)
-        self.assertEqual(texts[-4:], [((174, 42 + 7 + 5), "-12", "#ee7868"), ((174, 42 + 20 + 5), "-37", "#ee7868"),
-                                      ((122, 102 + 61 + 5), "120", "#e8bf70"),
-                                      ((174, 102 + 61 + 5), "40", "#8ad4c8")])
+        self.assertEqual(texts, [((6, 9), "[x] Worm", "#d8cfb4"), ((60, 9), "[x] Taken", "#d8cfb4"),
+                                 ((120, 9), "[x] Dealt", "#d8cfb4"), ((6, 30), "WORM", "#d8cfb4"),
+                                 ((87, 30), "", "#b8c0c4"), ((174, 30), "42%", "#f0f0f0"),
+                                 ((6, 50), "on foot", "#aab4b8")])   # no damage numbers in the box
         bar = [it for it in tk.canvas.items.values() if it["kind"] == "rect"]
         self.assertEqual(bar[0]["coords"], (44, 24, 130, 36))
         self.assertEqual(tk.canvas.itemcget(w.pct, "text"), "42%")
+        # the overlay: the drawing list of its numbers, outlines first, then fills
+        view = dehulud.Overlay()
+        view.step(dehulud.Reading("on foot", taken=(37,), dealt=((120,), (40,))), ALL)
+        view.step(dehulud.Reading("on foot", taken=(12,), dealt=((), ())), ALL)
+        _, _, _, _, s, o = dehulud.overlay_geometry((0, 0, 1920, 1080))
+        outlines, fills = dehulud.overlay_rects(view, s, o)
+        drawn = [it["coords"] + (it["fill"],) for it in tk.ocanvas.items.values()]
+        self.assertEqual(drawn, dehulud.overlay_canvas_items(outlines, fills))
+        self.assertTrue(all(it["width"] == 0 and it["kind"] == "rect" for it in tk.ocanvas.items.values()))
+        self.assertEqual(w.overlay_state(), {"geometry": [859, 270, 202, 102, 2, 1], "mapped": True,
+                                             "outlines": [list(r) for r in outlines],
+                                             "fills": [list(f) for f in fills]})
 
-    def test_a_flipped_section_forgets_its_numbers_at_once(self):
+    def test_a_flipped_switch_clears_its_column_at_once(self):
         def numbers():
             return dehulud.Reading("on foot", 42, 0.425, taken=(37,), dealt=((120,), (40,)))
         meter = Meter([numbers(), numbers()])
         w, tk = self.window({}, meter=meter)
-
-        def drawn():
-            return [t[1] for t in tk.canvas.texts() if t[2] in ("#ee7868", "#e8bf70", "#8ad4c8", "#85969d")]
         w.tick()
-        self.assertEqual(drawn(), ["HEALTH", "SHIELD", "-37", "120", "40"])
+        self.assertEqual((len(w.view.taken), len(w.view.dealt)), (1, 2))
         self.click(w, 80, 9)                     # Taken off and straight on again, no poll between
         self.click(w, 80, 9)
-        self.assertEqual(drawn(), ["HEALTH", "SHIELD", "-", "120", "40"])
+        self.assertEqual((len(w.view.taken), len(w.view.dealt), w.overlay_state()["mapped"]), (0, 2, True))
         self.click(w, 150, 9)
+        self.assertEqual((w.view.empty(), w.overlay_state()["mapped"]), (True, False))   # unmapped at once
         self.click(w, 150, 9)
-        self.assertEqual(drawn(), ["HEALTH", "SHIELD", "-", "-", "-"])
         w.tick()
         for x in (10, 80, 150):                  # all off: no polls at all ...
             self.click(w, x, 9)
+        self.assertFalse(w.overlay_state()["mapped"])
         w.tick()
         for x in (10, 80, 150):                  # ... then on again: the old numbers do not come back
             self.click(w, x, 9)
-        self.assertEqual(drawn(), ["HEALTH", "SHIELD", "-", "-", "-"])
+        self.assertTrue(w.view.empty())
         self.assertEqual(len(meter.asked), 2)
+
+    def test_overlay_window_shape_and_map_state(self):
+        meter = Meter([dehulud.Reading("on foot", taken=(37,), dealt=((), ())),
+                       dehulud.Reading("on foot", taken=(), dealt=((), ()))] +
+                      [dehulud.Reading("on foot", taken=(), dealt=((), ()))] * 4 +
+                      [dehulud.Reading("no permission")])
+        w, tk = self.window({}, meter=meter)
+        top, xid = tk.top, 0x1e00007
+        # created unmapped, override-redirect, on top, titled, placed once; empty input and bounding shapes
+        # (mapped once off every screen so that Tk creates the X window it maps, shaped, unmapped, then placed)
+        self.assertEqual(top.calls, [("withdraw",), ("overrideredirect", True), ("title", dehulud.OVERLAY_TITLE),
+                                     ("geometry", "202x102+-10202+-10102"), ("deiconify",), ("update_idletasks",),
+                                     ("withdraw",), ("geometry", "202x102+859+270"), ("attributes", "-topmost", True)])
+        self.assertEqual(self.xs.calls, [(xid, dehulud.SHAPE_INPUT, []), (xid, dehulud.SHAPE_BOUNDING, [])])
+        self.assertEqual((tk.ocanvas.width, tk.ocanvas.height, tk.ocanvas.root), (202, 102, top))
+        del top.calls[:], self.xs.calls[:]
+        w.tick()                                 # a number: shaped, then mapped and raised
+        outlines = [tuple(r) for r in w.overlay_state()["outlines"]]
+        self.assertTrue(outlines)
+        self.assertEqual(self.xs.calls, [(xid, dehulud.SHAPE_BOUNDING, outlines)])
+        self.assertEqual(top.calls, [("deiconify",), ("lift",), ("attributes", "-topmost", True)])
+        del top.calls[:], self.xs.calls[:]
+        for _ in range(4):                       # ages 1..4: the same shape, only the colour fades
+            w.tick()
+        self.assertEqual((top.calls, self.xs.calls), ([], []))
+        w.tick()                                 # removed on its fifth poll: unmapped
+        self.assertEqual((top.calls, w.overlay_state()["mapped"]), ([("withdraw",)], False))
+        w.tick()                                 # unreadable: still nothing
+        self.assertEqual(top.calls, [("withdraw",)])
+        w.quit()
+        self.assertTrue(self.xs.closed)
+
+    def test_without_shape_no_overlay_and_no_damage_reads(self):
+        for shape, xs in ((False, self.xs), (None, None)):   # forced off, or no SHAPE on the server
+            meter = Meter()
+            err = io.StringIO()
+            with mock.patch.object(dehulud, "xshape", return_value=xs) as loader, mock.patch("sys.stderr", err):
+                w, tk = self.window({}, meter=meter, shape=shape)
+                w.tick()
+                self.click(w, 80, 9)             # the switches still flip and save
+                w.tick()
+            self.assertEqual(loader.called, shape is None)
+            self.assertEqual(err.getvalue(), dehulud.NO_SHAPE + "\n")
+            self.assertIsNone(w.overlay_state())
+            self.assertFalse(hasattr(tk, "top"))
+            self.assertEqual(meter.asked, [frozenset(["worm"]), frozenset(["worm"])])
+            self.assertFalse(self.saved()[TAKEN])
+            self.assertTrue(w.help_text().endswith("\n" + dehulud.NO_SHAPE))
+            dehulud.save_config(self.path, DEFAULTS)
+        w, tk = self.window({})
+        self.assertNotIn(dehulud.NO_SHAPE, w.help_text())
+        # Tk gives no X window for the overlay: no overlay (never a shape request for window 0)
+        err = io.StringIO()
+        with mock.patch.object(FakeToplevel, "wm_frame", lambda self: "0x0"), mock.patch("sys.stderr", err):
+            w, tk = self.window({})
+        self.assertEqual((w.overlay_state(), err.getvalue(), self.xs.calls[-2:]),
+                         (None, dehulud.NO_SHAPE + "\n", [(0x1e00007, dehulud.SHAPE_INPUT, []),
+                                                          (0x1e00007, dehulud.SHAPE_BOUNDING, [])]))
+        self.assertTrue(self.xs.closed and ("destroy",) in tk.top.calls)
+        meter = Meter()
+        w, tk = self.window({"worm": False}, meter=meter, shape=False)
+        w.tick()                                 # only damage switches on, no overlay: nothing to read
+        self.assertEqual(meter.asked, [frozenset()])
 
     def test_every_click_resets_the_readers_but_not_the_flags_at_startup(self):
         meter = Meter()
@@ -628,7 +661,7 @@ class TkWindow(unittest.TestCase):
         texts = [t[1] for t in tk.canvas.texts()]
         self.assertIn("waiting for game", texts)
         self.assertNotIn("WORM", texts)
-        self.assertEqual(texts.count("-"), 3)     # taken, health, shield
+        self.assertNotIn("-", texts)              # no damage numbers in the box, and never a '-' in the overlay
 
 
 class OwnIdentity(unittest.TestCase):
@@ -648,6 +681,66 @@ class OwnIdentity(unittest.TestCase):
         self.assertEqual(dehulud.config_path({"XDG_CONFIG_HOME": "/x"}), "/x/dehulud-combat/config.json")
         self.assertEqual(dehulud.APP, "DeHulud Combat")
         self.assertTrue(dehulud.__doc__.startswith("DeHulud Combat - "))
+
+
+class XShapeLoader(unittest.TestCase):
+    """The X SHAPE layer without an X server: what makes it give up, and the call it makes."""
+
+    def test_no_overlay_without_a_local_display_library_or_symbol(self):
+        with mock.patch("ctypes.CDLL") as cdll:
+            for name in ("", "host:0", "localhost:10.0", "/tmp/.X11-unix/X0"):
+                self.assertIsNone(dehulud.xshape(name))
+            cdll.assert_not_called()             # decided before any library is loaded
+            cdll.side_effect = OSError("libXext.so.6: cannot open shared object file")
+            self.assertIsNone(dehulud.xshape(":0"))
+            cdll.side_effect = None
+            cdll.return_value = mock.Mock(spec=["XOpenDisplay", "XCloseDisplay", "XFlush"])  # no XShape* symbols
+            self.assertIsNone(dehulud.xshape(":0"))
+
+    def fake_libs(self, has_shape=True, version=(1, 1)):
+        x11 = mock.Mock()
+        x11.XOpenDisplay.return_value = 0x1234
+        xext = mock.Mock()
+        xext.XShapeQueryExtension.return_value = has_shape
+
+        def query_version(dpy, major, minor):
+            major._obj.value, minor._obj.value = version
+            return True
+        xext.XShapeQueryVersion.side_effect = query_version
+        return x11, xext
+
+    def test_opens_the_unix_socket_form_and_needs_shape_1_1(self):
+        for has, version, ok in ((True, (1, 1), True), (False, (1, 1), False), (True, (1, 0), False)):
+            x11, xext = self.fake_libs(has, version)
+            with mock.patch("ctypes.CDLL", side_effect=[x11, xext]):
+                xs = dehulud.xshape(":7.0")
+            x11.XOpenDisplay.assert_called_once_with(b"unix/:7.0")
+            self.assertEqual(xs is not None, ok)
+            self.assertEqual(x11.XCloseDisplay.called, not ok)
+        x11, xext = self.fake_libs()
+        x11.XOpenDisplay.return_value = None     # the display cannot be opened
+        with mock.patch("ctypes.CDLL", side_effect=[x11, xext]):
+            self.assertIsNone(dehulud.xshape(":7"))
+
+    def test_combine_sets_and_flushes(self):
+        x11, xext = self.fake_libs()
+        with mock.patch("ctypes.CDLL", side_effect=[x11, xext]):
+            xs = dehulud.xshape(":7")
+        xs.combine(0x1e00007, dehulud.SHAPE_BOUNDING, [(0, 0, 18, 6), (2, 4, 10, 3)])
+        args = xext.XShapeCombineRectangles.call_args[0]
+        self.assertEqual((args[0], args[1], args[2], args[3], args[4], args[6], args[7], args[8]),
+                         (0x1234, 0x1e00007, 0, 0, 0, 2, 0, 0))   # ShapeBounding at (0, 0), ShapeSet, Unsorted
+        self.assertEqual([(r.x, r.y, r.width, r.height) for r in args[5]], [(0, 0, 18, 6), (2, 4, 10, 3)])
+        x11.XFlush.assert_called_with(0x1234)
+        xs.combine(0x1e00007, dehulud.SHAPE_INPUT, [])
+        self.assertEqual(xext.XShapeCombineRectangles.call_args[0][2:7:4], (2, 0))
+        xs.close()
+        xs.close()
+        x11.XCloseDisplay.assert_called_once_with(0x1234)
+
+    def test_canvas_items_outlines_first(self):
+        self.assertEqual(dehulud.overlay_canvas_items([(0, 0, 4, 3), (1, 1, 2, 2)], [(1, 1, 2, 1, "#ff4d3d")]),
+                         [(0, 0, 4, 3, "#0b0c0d"), (1, 1, 3, 3, "#0b0c0d"), (1, 1, 3, 2, "#ff4d3d")])
 
 
 class MainPassesFlags(unittest.TestCase):

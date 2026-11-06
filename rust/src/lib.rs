@@ -57,4 +57,7 @@ pub mod testhook {
     pub fn stop_requested() -> bool {
         false
     }
+    pub fn no_shape() -> bool {
+        false
+    }
 }

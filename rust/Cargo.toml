@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 libc = "0.2.191"
-x11rb = { version = "0.13.2", default-features = false, features = ["randr"] }
+x11rb = { version = "0.13.2", default-features = false, features = ["randr", "shape"] }
 
 [features]
 # Test builds only: lets the integration tests point the meter at their fake game (see src/testhook.rs).

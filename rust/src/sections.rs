@@ -1,18 +1,16 @@
-//! The window's sections and what the damage sections show: the three switches, the layout (section order and
-//! heights), the header's click zones and click-or-drag rule, and the damage numbers by poll age (order, at most
-//! four per column, fading, removal, the five-digit cap, `-`). Pure functions, the same as in `dehulud.py`; the
-//! drawing is in [`crate::window`].
+//! The window's sections: the three switches, the layout (section order and heights), the header's click zones
+//! and click-or-drag rule, and how an emitted drop becomes a shown number (rounding, the five-digit cap, life in
+//! polls, rows per column) for the damage overlay ([`crate::overlay`]). Pure functions, the same as in
+//! `dehulud_combat.py`; the drawing is in [`crate::combat_window`].
 
 /// The window's width; the height follows the sections that are on.
 pub const W: i32 = 180;
 /// Section heights in pixels, top to bottom.
 pub const HEADER_H: i32 = 18;
 pub const WORM_H: i32 = 24;
-pub const TAKEN_H: i32 = 60;
-pub const DEALT_H: i32 = 76;
 pub const STATUS_H: i32 = 20;
 /// The tallest window (every section on).
-pub const MAX_H: i32 = HEADER_H + WORM_H + TAKEN_H + DEALT_H + STATUS_H;
+pub const MAX_H: i32 = HEADER_H + WORM_H + STATUS_H;
 /// A press that moves this far (in x or y) by its release is a drag, not a click.
 pub const CLICK_PX: i32 = 3;
 /// A number is removed on its fifth poll (shown at ages 0 to 4).
@@ -24,21 +22,6 @@ pub const CAP: u32 = 99999;
 
 pub const LABEL: u32 = 0xd8cfb4;
 pub const OFF: u32 = 0x6b7174;
-pub const DASH: u32 = 0x85969d;
-pub const RED: u32 = 0xee7868;
-pub const AMBER: u32 = 0xe8bf70;
-pub const TEAL: u32 = 0x8ad4c8;
-/// Colour by age in polls: full at ages 0 and 1, then blended towards the background at 70, 45 and 20 %.
-pub const FADE: [(u32, [u32; 5]); 3] = [
-    (RED, [RED, RED, 0xaf5d53, 0x7b4741, 0x47312f]),
-    (AMBER, [AMBER, AMBER, 0xab8f58, 0x786745, 0x463f31]),
-    (TEAL, [TEAL, TEAL, 0x699e96, 0x4e706c, 0x334342]),
-];
-/// Top of the big glyphs per row in the Damage taken section (row 1, the newest, first).
-pub const TAKEN_TOPS: [i32; 4] = [7, 20, 33, 46];
-/// Top of the big glyphs per row in the Damage dealt section (row 4 is the newest).
-pub const DEALT_TOPS: [i32; 4] = [22, 35, 48, 61];
-
 /// One of the window's three switchable sections.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Feature {
@@ -123,8 +106,6 @@ impl Features {
 pub enum Section {
     Header,
     Worm,
-    Taken,
-    Dealt,
     Status,
 }
 
@@ -134,8 +115,6 @@ impl Section {
         match self {
             Section::Header => "header",
             Section::Worm => "worm",
-            Section::Taken => "damage_taken",
-            Section::Dealt => "damage_dealt",
             Section::Status => "status",
         }
     }
@@ -144,13 +123,8 @@ impl Section {
 /// The sections shown with their top y, and the window height. The header is always shown, the status line
 /// whenever at least one section is on; the order never changes.
 pub fn layout(on: Features) -> (Vec<(Section, i32)>, i32) {
-    let all = [
-        (Section::Header, HEADER_H, true),
-        (Section::Worm, WORM_H, on.worm),
-        (Section::Taken, TAKEN_H, on.taken),
-        (Section::Dealt, DEALT_H, on.dealt),
-        (Section::Status, STATUS_H, on.any()),
-    ];
+    let all =
+        [(Section::Header, HEADER_H, true), (Section::Worm, WORM_H, on.worm), (Section::Status, STATUS_H, on.any())];
     let mut y = 0;
     let mut out = Vec::new();
     for (s, h, shown) in all {
@@ -199,106 +173,6 @@ pub fn shown_number(v: f64) -> Option<u32> {
     if n <= 0.0 { None } else { Some(n.min(f64::from(CAP)) as u32) }
 }
 
-/// The colour of a number of base colour `rgb` at `age` polls (None once it is removed).
-pub fn fade(rgb: u32, age: u32) -> Option<u32> {
-    let steps = FADE.iter().find(|(b, _)| *b == rgb)?.1;
-    steps.get(age as usize).copied()
-}
-
-/// One column of damage numbers, newest first, each with its age in polls; or `-` after an unreadable poll.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Column {
-    pub items: Vec<(u32, u32)>,
-    pub dash: bool,
-}
-
-impl Default for Column {
-    fn default() -> Self {
-        Column { items: Vec::new(), dash: true } // nothing read yet: '-'
-    }
-}
-
-impl Column {
-    /// One poll: None = nothing trustworthy (clear, `-`), else the number emitted in this poll, if any.
-    pub fn step(&mut self, emitted: Option<Option<f64>>) {
-        let Some(emitted) = emitted else {
-            self.items.clear();
-            self.dash = true;
-            return;
-        };
-        self.dash = false;
-        self.items = self.items.iter().filter(|(_, age)| age + 1 < LIFE).map(|(n, age)| (*n, age + 1)).collect();
-        if let Some(n) = emitted.and_then(shown_number) {
-            self.items.insert(0, (n, 0));
-        }
-        self.items.truncate(ROWS);
-    }
-}
-
-/// What the two damage sections show: the Damage taken column and the Damage dealt health and shield columns.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct DamageView {
-    pub taken: Column,
-    pub health: Column,
-    pub shield: Column,
-}
-
-impl DamageView {
-    /// Forgets a damage section's numbers (its switch was flipped): it starts again with `-`.
-    pub fn reset(&mut self, f: Feature) {
-        match f {
-            Feature::Worm => {}
-            Feature::Taken => self.taken = Column::default(),
-            Feature::Dealt => {
-                self.health = Column::default();
-                self.shield = Column::default();
-            }
-        }
-    }
-
-    /// One poll's damage values. A section that is off forgets its numbers (it starts with `-` when switched on).
-    pub fn step(&mut self, taken: Option<Option<f64>>, dealt: Option<(Option<f64>, Option<f64>)>, on: Features) {
-        if on.taken {
-            self.taken.step(taken);
-        } else {
-            self.taken = Column::default();
-        }
-        if on.dealt {
-            self.health.step(dealt.map(|d| d.0));
-            self.shield.step(dealt.map(|d| d.1));
-        } else {
-            self.health = Column::default();
-            self.shield = Column::default();
-        }
-    }
-}
-
-/// One number to draw: section, right x, top y inside the section, text, colour (big font, right-aligned).
-pub type Cell = (Section, i32, i32, String, u32);
-
-/// The numbers to draw for the damage sections that are on.
-pub fn damage_cells(v: &DamageView, on: Features) -> Vec<Cell> {
-    let mut out = Vec::new();
-    let mut column = |section: Section, col: &Column, right: i32, tops: &[i32; 4], rgb: u32, sign: &str| {
-        let top = |i: usize| if section == Section::Taken { tops[i] } else { tops[ROWS - 1 - i] };
-        if col.dash {
-            out.push((section, right, top(0), "-".to_string(), DASH));
-            return;
-        }
-        for (i, (n, age)) in col.items.iter().enumerate() {
-            out.push((section, right, top(i), format!("{sign}{n}"), fade(rgb, *age).unwrap_or(rgb)));
-        }
-    };
-    if on.taken {
-        column(Section::Taken, &v.taken, 174, &TAKEN_TOPS, RED, "-");
-    }
-    if on.dealt {
-        column(Section::Dealt, &v.health, 122, &DEALT_TOPS, AMBER, "");
-        column(Section::Dealt, &v.shield, 174, &DEALT_TOPS, TEAL, "");
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,30 +183,23 @@ mod tests {
 
     #[test]
     fn heights_of_all_eight_combinations() {
+        // the damage numbers are in the overlay: the box is header + worm meter + status line
         let want = [
             ((false, false, false), 18),
             ((true, false, false), 62),
-            ((false, true, false), 98),
-            ((false, false, true), 114),
-            ((true, true, false), 122),
-            ((true, false, true), 138),
-            ((false, true, true), 174),
-            ((true, true, true), 198),
+            ((false, true, false), 38),
+            ((false, false, true), 38),
+            ((true, true, false), 62),
+            ((true, false, true), 62),
+            ((false, true, true), 38),
+            ((true, true, true), 62),
         ];
         for ((w, t, d), h) in want {
             assert_eq!(layout(feats(w, t, d)).1, h, "{w} {t} {d}");
         }
-        assert_eq!(MAX_H, 198);
-        assert_eq!(
-            layout(Features::ALL).0,
-            [
-                (Section::Header, 0),
-                (Section::Worm, 18),
-                (Section::Taken, 42),
-                (Section::Dealt, 102),
-                (Section::Status, 178)
-            ]
-        );
+        assert_eq!(MAX_H, 62);
+        assert_eq!(layout(Features::ALL).0, [(Section::Header, 0), (Section::Worm, 18), (Section::Status, 42)]);
+        assert_eq!(layout(feats(false, true, true)).0, [(Section::Header, 0), (Section::Status, 18)]);
         assert_eq!(layout(Features::NONE).0, [(Section::Header, 0)]);
     }
 
@@ -357,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn rounding_cap_and_fades() {
+    fn rounding_and_cap() {
         let got: Vec<_> = [0.0, 0.49, 0.5, 1.5, 2.5, 36.6, 99999.4, 99999.5, 1e12, -1.0, f64::NAN, f64::INFINITY]
             .iter()
             .map(|v| shown_number(*v))
@@ -365,84 +232,5 @@ mod tests {
         let want = [None, None, Some(1), Some(2), Some(3), Some(37), Some(99999), Some(99999), Some(99999)];
         assert_eq!(got[..9], want);
         assert_eq!(got[9..], [None; 3]);
-        // the dim steps are the colour blended towards the background at 70, 45 and 20 %
-        let blend = |rgb: u32, k: f64| {
-            let ch = |s: u32, bg: u32| {
-                let (c, b) = (f64::from((rgb >> s) & 0xff), f64::from(bg));
-                ((b + (c - b) * k / 100.0).round() as u32) << s
-            };
-            ch(16, 0x1d) | ch(8, 0x1f) | ch(0, 0x21)
-        };
-        for (base, steps) in FADE {
-            assert_eq!(steps[2..], [blend(base, 70.0), blend(base, 45.0), blend(base, 20.0)]);
-        }
-        assert_eq!(fade(RED, 5), None);
-    }
-
-    #[test]
-    fn column_order_life_and_dash() {
-        let mut c = Column::default();
-        assert!(c.dash);
-        for v in 1..=5 {
-            c.step(Some(Some(f64::from(v))));
-        }
-        assert_eq!(c.items, [(5, 0), (4, 1), (3, 2), (2, 3)]);
-        let mut c = Column::default();
-        c.step(Some(Some(37.0)));
-        let mut ages = Vec::new();
-        for _ in 0..6 {
-            ages.push(c.items.iter().map(|i| i.1).collect::<Vec<_>>());
-            c.step(Some(None));
-        }
-        assert_eq!(ages, [vec![0], vec![1], vec![2], vec![3], vec![4], vec![]]);
-        c.step(Some(Some(12.0)));
-        c.step(None);
-        assert_eq!((c.dash, c.items.len()), (true, 0));
-        c.step(Some(Some(0.2)));
-        assert_eq!((c.dash, c.items.len()), (false, 0));
-    }
-
-    #[test]
-    fn cells() {
-        let mut v = DamageView::default();
-        v.step(Some(Some(37.0)), Some((Some(120.0), None)), Features::ALL);
-        v.step(Some(Some(12.0)), Some((Some(84.0), Some(40.0))), Features::ALL);
-        v.step(Some(None), Some((None, None)), Features::ALL);
-        let c = |s, x, y, t: &str, rgb| (s, x, y, t.to_string(), rgb);
-        assert_eq!(
-            damage_cells(&v, Features::ALL),
-            [
-                c(Section::Taken, 174, 7, "-12", RED),
-                c(Section::Taken, 174, 20, "-37", 0xaf5d53),
-                c(Section::Dealt, 122, 61, "84", AMBER),
-                c(Section::Dealt, 122, 48, "120", 0xab8f58),
-                c(Section::Dealt, 174, 61, "40", TEAL),
-            ]
-        );
-        v.step(None, None, Features::ALL); // unreadable, or an unsupported build
-        assert_eq!(
-            damage_cells(&v, Features::ALL),
-            [
-                c(Section::Taken, 174, 7, "-", DASH),
-                c(Section::Dealt, 122, 61, "-", DASH),
-                c(Section::Dealt, 174, 61, "-", DASH)
-            ]
-        );
-        let mut v = DamageView::default();
-        v.step(Some(Some(123456.0)), Some((Some(1e9), Some(99999.4))), Features::ALL);
-        let texts: Vec<String> = damage_cells(&v, Features::ALL).into_iter().map(|c| c.3).collect();
-        assert_eq!(texts, ["-99999", "99999", "99999"]);
-        assert!(174 - crate::font::BIG.width("-99999", false) >= 129, "the widest number fits its column");
-        assert!(122 - crate::font::BIG.width("99999", false) >= 83);
-    }
-
-    #[test]
-    fn a_section_switched_off_forgets_its_numbers() {
-        let mut v = DamageView::default();
-        v.step(Some(Some(5.0)), Some((Some(6.0), None)), Features::ALL);
-        let no_taken = feats(true, false, true);
-        v.step(Some(None), Some((None, None)), no_taken);
-        assert_eq!(damage_cells(&v, no_taken), [(Section::Dealt, 122, 61, "6".to_string(), AMBER)]);
-        assert_eq!(damage_cells(&v, Features::ALL)[0], (Section::Taken, 174, 7, "-".to_string(), DASH));
     }
 }

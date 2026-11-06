@@ -1,13 +1,14 @@
 //! Differential test of DeHulud Combat against its reference implementation, `dehulud_combat.py` (imported,
-//! never run as a meter): the window's sections and the damage display, and the config file with its section
-//! switches, must come out the same in both versions. Needs a Python 3 (see common::python).
+//! never run as a meter): the window's sections and the damage overlay's numbers, and the config file with its
+//! section switches, must come out the same in both versions. Needs a Python 3 (see common::python).
 
 mod common;
 
 use common::*;
 use dehulud::combat_config;
 use dehulud::json::{self, Value, quote};
-use dehulud::sections::{self, DamageView, Feature, Features};
+use dehulud::overlay::{self, Overlay};
+use dehulud::sections::{self, Feature, Features};
 use dehulud::window::hex;
 use std::process::{Command, Stdio};
 
@@ -51,18 +52,20 @@ out["headers"] = [[list(h) for h in dehulud.header_cells(c)] for c in combos]
 out["zones"] = [dehulud.header_zone(x, y) for x, y in inp["points"]]
 out["clicks"] = [dehulud.is_click(dx, dy) for dx, dy in inp["moves"]]
 out["numbers"] = [dehulud.shown_number(v) for v in inp["numbers"]]
-view, cells = dehulud.DamageView(), []
+view, cells = dehulud.Overlay(), []
 for st in inp["steps"]:
     on = frozenset(st["on"])
     view.step(dehulud.Reading("on foot", taken=st["taken"], dealt=st["dealt"]), on)
-    cells.append([list(c) for c in dehulud.damage_cells(view, on)])
+    outlines, fills = dehulud.overlay_rects(view, 2, 1)
+    cells.append([[list(r) for r in outlines], [list(r) for r in fills], view.empty()])
 out["cells"] = cells
 print(json.dumps(out))
 "#;
 
-/// The window's sections and the damage display as pure functions: layout, header switches and click zones,
-/// the click-or-drag rule, rounding and cap, and a run of polls through the damage columns (order, at most four,
-/// fade by age, removal on the fifth poll, '-', a section switched off) must come out the same in both versions.
+/// The window's sections and the damage overlay as pure functions: layout, header switches and click zones,
+/// the click-or-drag rule, rounding and cap, and a run of polls through the overlay's columns (order, at most
+/// four, fade by age, removal on the fifth poll, clearing, a switch turned off), as the overlay's rectangle and
+/// colour lists, must come out the same in both versions.
 #[test]
 fn same_sections_and_damage_display_as_the_python_version() {
     let combos: Vec<Features> =
@@ -151,14 +154,15 @@ fn same_sections_and_damage_display_as_the_python_version() {
     for (i, v) in numbers.iter().enumerate() {
         assert_eq!(rs(jopt(sections::shown_number(*v))), get("numbers")[i], "{v}");
     }
-    let mut view = DamageView::default();
+    let mut view = Overlay::default();
     for (i, (t, d, on)) in steps.iter().enumerate() {
         view.step(*t, *d, *on);
-        let cells: Vec<String> = sections::damage_cells(&view, *on)
-            .iter()
-            .map(|(s, x, y, t, rgb)| format!("[{}, {x}, {y}, {}, {}]", quote(s.name()), quote(t), quote(&hex(*rgb))))
-            .collect();
-        assert_eq!(rs(format!("[{}]", cells.join(", "))), get("cells")[i], "poll {i}");
+        let (outlines, fills) = overlay::rects(&view, 2, 1);
+        let outlines: Vec<String> = outlines.iter().map(|(a, b, c, d)| format!("[{a}, {b}, {c}, {d}]")).collect();
+        let fills: Vec<String> =
+            fills.iter().map(|((a, b, c, d), rgb)| format!("[{a}, {b}, {c}, {d}, {}]", quote(&hex(*rgb)))).collect();
+        let got = format!("[[{}], [{}], {}]", outlines.join(", "), fills.join(", "), view.is_empty());
+        assert_eq!(rs(got), get("cells")[i], "poll {i}");
     }
 }
 

@@ -21,6 +21,7 @@
 //! | `trace=<path>` | append one JSON line per poll and per window event |
 //! | `reading=status\|percent\|fraction\|hint\|detail\|taken\|dealt` | repeatable: a scripted meter instead of the real one |
 //! | `step=<n>` | which scripted reading is shown |
+//! | `no_shape=1` | DeHulud Combat: act as on a server without the SHAPE extension (no damage overlay) |
 //!
 //! A scripted reading's damage fields: `-` = unreadable (the section shows '-'), empty = nothing emitted, a
 //! number = that drop (taken), `health/shield` with either side empty (dealt). The numbers are emitted on the
@@ -124,6 +125,11 @@ pub fn poll_interval() -> Option<Duration> {
 
 pub fn stop_requested() -> bool {
     control().on("stop")
+}
+
+/// `no_shape=1`: DeHulud Combat's window behaves as on a server without the SHAPE extension (no overlay).
+pub fn no_shape() -> bool {
+    control().on("no_shape")
 }
 
 /// The test source: one process (the test's own child) or none.

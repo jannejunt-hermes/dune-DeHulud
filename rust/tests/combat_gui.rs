@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use x11rb::connection::Connection;
+use x11rb::protocol::shape::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
     self, AtomEnum, ButtonPressEvent, ConnectionExt as _, EventMask, ImageFormat, KeyButMask, MotionNotifyEvent,
 };
@@ -146,7 +147,7 @@ fn window_on_owned_display() {
     assert_eq!(s(&get("title")), "DeHulud Combat");
     assert!(b(get("above")), "_NET_WM_STATE_ABOVE");
     assert!(b(get("frameless")), "override-redirect");
-    assert_eq!(ints(get("size")), [180, 198], "all three sections on by default");
+    assert_eq!(ints(get("size")), [180, 62], "header, worm meter and status line by default");
     assert_eq!(ints(get("position")), [1280 - 180 - 24, 48], "top-right of the primary monitor");
     let shown = match get("shown") {
         Value::Array(a) => a
@@ -163,9 +164,10 @@ fn window_on_owned_display() {
     assert_eq!(shown[2], ["100%", "vehicle", "#ee7868", ""]);
     assert_eq!(shown[3], ["-", "no permission", "#85969d", "right-click"]);
     assert!(b(get("lone_release_ignored")), "a release without a press chose a menu entry");
-    assert_eq!(ints(get("size_without_taken")), [180, 138]);
+    assert_eq!(ints(get("size_without_taken")), [180, 62]);
+    assert_eq!(ints(get("size_worm_only_off")), [180, 38]);
     assert_eq!(ints(get("size_all_off")), [180, 18]);
-    assert_eq!(ints(get("size_all_on_again")), [180, 198]);
+    assert_eq!(ints(get("size_all_on_again")), [180, 62]);
     assert!(s(&get("after_click")).contains("\"damage_taken\": false"), "the click is saved");
     assert!(b(get("corner_kept")), "the window keeps its top-left corner when it grows and shrinks");
     assert!(b(get("all_off_reads_nothing")), "a poll while every section was off");
@@ -184,6 +186,17 @@ fn window_on_owned_display() {
         "{\"x\": null, \"y\": null, \"frame\": true, \"worm\": true, \"damage_taken\": true, \"damage_dealt\": true}"
     );
     assert!(b(get("quit_exit_0")));
+    // the damage overlay: a shaped, unmanaged window, placed once on the primary monitor (1280 x 800: s = 1)
+    assert_eq!(s(&get("overlay_title")), "DeHulud Combat damage");
+    assert!(b(get("overlay_override_redirect")));
+    assert_eq!(ints(get("overlay_geometry")), [589, 200, 102, 52, 1, 1]);
+    assert_eq!(ints(get("overlay_position")), [589, 200]);
+    assert!(b(get("overlay_destroyed_on_quit")));
+    // no SHAPE (test hook): one stderr line, no overlay, the damage features are not read
+    assert!(b(get("no_shape_line_once")), "{}", s(&get("no_shape_stderr")));
+    assert!(b(get("no_shape_no_overlay")));
+    assert!(b(get("no_shape_reads_worm_only")));
+    assert!(b(get("no_shape_help")));
     // the framed window's position is saved as its frame's top-left: reopening puts it at the same place
     assert_eq!(
         s(&get("after_quit")),
@@ -343,6 +356,24 @@ impl Probe {
         self.keep(menu, &format!("menu-{}.ppm", label.split(' ').next().unwrap()));
         (menu, at, ((mx + 20) as i16, (my + i64::from(at.1)) as i16))
     }
+    /// Our top-level window titled `title`, if there is one.
+    fn find(&self, title: &str) -> Option<u32> {
+        let t = self.conn.query_tree(self.root).unwrap().reply().unwrap();
+        t.children.into_iter().find(|w| self.title(*w) == title)
+    }
+    fn viewable(&self, win: u32) -> bool {
+        self.conn.get_window_attributes(win).unwrap().reply().unwrap().map_state == xproto::MapState::VIEWABLE
+    }
+    /// The pixels covered by a window's shape of kind `kind`, as a w x h bitmap.
+    fn shape_bits(&self, win: u32, kind: shape::SK, w: usize, h: usize) -> (usize, Vec<bool>) {
+        let r = self.conn.shape_get_rectangles(win, kind).unwrap().reply().unwrap();
+        let rects: Vec<(i64, i64, i64, i64)> = r
+            .rectangles
+            .iter()
+            .map(|r| (i64::from(r.x), i64::from(r.y), i64::from(r.width), i64::from(r.height)))
+            .collect();
+        (rects.len(), cover(&rects, w, h))
+    }
     fn config(&self) -> String {
         fs::read_to_string(self.dir.join("cfg").join("dehulud-combat").join("config.json")).unwrap_or_default()
     }
@@ -378,6 +409,58 @@ fn save_ppm_sized(path: &Path, w: u16, h: u16, px: &[u32]) {
         data.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
     }
     fs::write(path, data).unwrap();
+}
+
+/// A union of rectangles as a w x h bitmap (what is outside the window is dropped).
+fn cover(rects: &[(i64, i64, i64, i64)], w: usize, h: usize) -> Vec<bool> {
+    let mut bits = vec![false; w * h];
+    for (x, y, rw, rh) in rects {
+        for yy in (*y).max(0)..(y + rh).min(h as i64) {
+            for xx in (*x).max(0)..(x + rw).min(w as i64) {
+                bits[yy as usize * w + xx as usize] = true;
+            }
+        }
+    }
+    bits
+}
+
+/// The traced overlay of an event: (mapped, outlines, fills as (x, y, w, h, colour)).
+#[allow(clippy::type_complexity)]
+fn traced_overlay(v: &Value) -> Option<(bool, Vec<(i64, i64, i64, i64)>, Vec<(i64, i64, i64, i64, String)>)> {
+    let o = v.get("overlay")?;
+    let int = |v: &Value| match v {
+        Value::Int(Some(n)) => *n,
+        o => panic!("{o:?}"),
+    };
+    let arr = |v: Option<&Value>| match v {
+        Some(Value::Array(a)) => a.clone(),
+        o => panic!("{o:?}"),
+    };
+    let outlines = arr(o.get("outlines"))
+        .iter()
+        .map(|r| {
+            let r = arr(Some(r));
+            (int(&r[0]), int(&r[1]), int(&r[2]), int(&r[3]))
+        })
+        .collect();
+    let fills = arr(o.get("fills"))
+        .iter()
+        .map(|r| {
+            let r = arr(Some(r));
+            let Value::Str(c) = &r[4] else { panic!("{r:?}") };
+            (int(&r[0]), int(&r[1]), int(&r[2]), int(&r[3]), c.clone())
+        })
+        .collect();
+    Some((o.get("mapped") == Some(&Value::Bool(true)), outlines, fills))
+}
+
+const OV_TAKEN: [&str; 5] = ["#ff4d3d", "#ff4d3d", "#b63a2f", "#792923", "#3c1917"];
+const OV_HEALTH: [&str; 5] = ["#3d9bff", "#3d9bff", "#2e70b6", "#224c7a", "#15293d"];
+const OV_SHIELD: [&str; 5] = ["#9cd2ff", "#9cd2ff", "#7197b6", "#4c657a", "#28343d"];
+
+/// Whether the traced overlay of an event has fills of any of `colours`.
+fn has_fill(v: &Value, colours: &[&str]) -> bool {
+    traced_overlay(v).is_some_and(|(_, _, f)| f.iter().any(|f| colours.contains(&f.4.as_str())))
 }
 
 /// (count, min x, max x, min y, max y) of the pixels of one colour.
@@ -491,11 +574,29 @@ fn probe_inside_owned_compositor() {
     let pos = p.root_pos(win);
     p.put("position", format!("[{}, {}]", pos.0, pos.1));
 
-    // four readings: what is shown, and where its pixels are. All sections on: header 0..18, worm 18..42,
-    // damage taken 42..102, damage dealt 102..178, status 178..198.
-    const RED: [u32; 4] = [0xee7868, 0xaf5d53, 0x7b4741, 0x47312f];
-    const AMBER: [u32; 4] = [0xe8bf70, 0xab8f58, 0x786745, 0x463f31];
-    const TEAL: [u32; 4] = [0x8ad4c8, 0x699e96, 0x4e706c, 0x334342];
+    // the overlay window: there from the start, unmapped while there is nothing to show
+    let overlay = p.find("DeHulud Combat damage");
+    p.put("overlay_title", quote(&overlay.map_or(String::new(), |w| p.title(w))));
+    let overlay = overlay.unwrap_or(0);
+    let oattrs = p.conn.get_window_attributes(overlay).unwrap().reply().unwrap();
+    p.put("overlay_override_redirect", oattrs.override_redirect.to_string());
+    let geo = match first.get("overlay") {
+        Some(Value::Object(_)) => {
+            let Some(Value::Array(g)) = first.get("overlay").unwrap().get("geometry") else { unreachable!() };
+            g.iter().map(|v| if let Value::Int(Some(n)) = v { *n } else { -1 }).collect::<Vec<i64>>()
+        }
+        o => panic!("overlay in the trace: {o:?}"),
+    };
+    p.put("overlay_geometry", format!("[{}]", geo.iter().map(i64::to_string).collect::<Vec<_>>().join(", ")));
+    let opos = p.root_pos(overlay);
+    p.put("overlay_position", format!("[{}, {}]", opos.0, opos.1));
+    let og = p.conn.get_geometry(overlay).unwrap().reply().unwrap();
+    p.check((i64::from(og.width), i64::from(og.height)) == (geo[2], geo[3]), format!("overlay size {og:?}"));
+    let (ow, oh) = (geo[2] as usize, geo[3] as usize);
+    let (n_input, input) = p.shape_bits(overlay, shape::SK::INPUT, ow, oh);
+    p.check(n_input == 0 && !input.contains(&true), format!("overlay input shape is empty: {n_input} rectangles"));
+
+    // four readings: what is shown, and where its pixels are. All on: header 0..18, worm 18..42, status 42..62.
     let mut shown = Vec::new();
     let statuses = ["on foot", "Unsupported game version", "vehicle", "no permission"];
     for (step, status) in statuses.iter().enumerate() {
@@ -506,6 +607,36 @@ fn probe_inside_owned_compositor() {
             n,
             |v| matches!(v.get("shown"), Some(Value::Array(a)) if a[1] == Value::Str((*status).into())),
         );
+        // the overlay: its bounding shape is the traced outline list, the server's map state the traced one,
+        // and its numbers are drawn in their colours
+        // (checked at the step's first tick: at 40 ms per poll its numbers are gone after about 200 ms)
+        let (mapped, outlines, fills) = traced_overlay(&ev).expect("an overlay in the trace");
+        let want_mapped = step == 0 || step == 2;
+        p.check(mapped == want_mapped && p.viewable(overlay) == want_mapped, format!("step {step}: overlay mapped"));
+        if mapped {
+            let (_, bits) = p.shape_bits(overlay, shape::SK::BOUNDING, ow, oh);
+            p.check(bits == cover(&outlines, ow, oh), format!("step {step}: bounding shape = the outline list"));
+            // the numbers age while the probe looks: compare colour families (taken, health, shield), any age
+            let family = |c: &str| {
+                [("taken", OV_TAKEN), ("health", OV_HEALTH), ("shield", OV_SHIELD)]
+                    .iter()
+                    .find(|(_, f)| f.contains(&c))
+                    .map_or("?", |f| f.0)
+            };
+            let mut got: Vec<&str> = fills.iter().map(|f| family(&f.4)).collect();
+            got.dedup();
+            let want: &[&str] = if step == 0 { &["taken", "health", "shield"] } else { &["health"] };
+            p.check(got == want, format!("step {step}: overlay columns {got:?}"));
+            let (iw, _, opx) = p.image(overlay);
+            let at = |x: i64, y: i64| opx[y as usize * usize::from(iw) + x as usize];
+            // fills in their colour family; the rest of the shape (the outlines around them) in the outline colour
+            let filled = cover(&fills.iter().map(|f| (f.0, f.1, f.2, f.3)).collect::<Vec<_>>(), ow, oh);
+            let shaped = cover(&outlines, ow, oh);
+            let ok = fills.iter().all(|(x, y, _, _, c)| family(&format!("#{:06x}", at(*x, *y))) == family(c))
+                && (0..ow * oh).all(|k| !shaped[k] || filled[k] || opx[k] == 0x0b0c0d);
+            p.check(ok, format!("step {step}: overlay pixels"));
+            p.keep(overlay, &format!("overlay-{step}.ppm"));
+        }
         p.wait("one more tick", p.n(), |_| true);
         let Some(Value::Array(sh)) = ev.get("shown") else { unreachable!() };
         let sh: Vec<String> = sh
@@ -524,7 +655,7 @@ fn probe_inside_owned_compositor() {
             format!("step {step}: the percent never covers the bar: {pct:?}"),
         );
         p.check(
-            status_ink.0 > 0 && status_ink.3 >= 178 && status_ink.4 < 198,
+            status_ink.0 > 0 && status_ink.3 >= 42 && status_ink.4 < 62,
             format!("step {step}: status line {status_ink:?}"),
         );
         let header = ink_in(&px, &[0xd8cfb4], 0, 18);
@@ -534,8 +665,7 @@ fn probe_inside_owned_compositor() {
         );
         let worm = ink_in(&px, &[0xd8cfb4], 18, 42);
         p.check(worm.0 > 0 && worm.1 == 6 && worm.2 < 44, format!("step {step}: WORM {worm:?}"));
-        let labels = (ink_in(&px, &[0xd8cfb4], 42, 102), ink_in(&px, &[0xd8cfb4], 102, 178));
-        p.check(labels.0.0 > 0 && labels.1.0 > 0, format!("step {step}: TAKEN and DEALT {labels:?}"));
+        p.check(px.len() == 180 * 62, format!("step {step}: the box is 62 px high ({} px)", px.len() / 180));
         let want_hint = step == 1 || step == 3;
         p.check((hint.0 > 0) == want_hint, format!("step {step}: hint shown {hint:?}"));
         if want_hint {
@@ -550,36 +680,6 @@ fn probe_inside_owned_compositor() {
         if step == 2 {
             p.check(at(129, 35) == 0xee7868, "100 % fills the whole bar".into());
         }
-        // damage numbers: big font, right-aligned; taken row 1 (top y 42 + 7), dealt row 4 (top y 102 + 61)
-        let (taken, health, shield, dash) = (
-            ink_in(&px, &RED, 42 + 7, 42 + 18),
-            ink_in(&px, &AMBER, 102 + 61, 102 + 72),
-            ink_in(&px, &TEAL, 102 + 61, 102 + 72),
-            ink_in(&px, &[0x85969d], 42, 178),
-        );
-        match step {
-            0 => {
-                p.check(taken.0 > 0 && taken.2 == 173 && taken.1 >= 129, format!("-37 in damage taken {taken:?}"));
-                p.check(health.0 > 0 && health.2 == 121 && health.1 >= 83, format!("120 under HEALTH {health:?}"));
-                p.check(shield.0 > 0 && shield.2 == 173 && shield.1 >= 135, format!("40 under SHIELD {shield:?}"));
-                p.check(dash.0 == 0, format!("no '-' with numbers {dash:?}"));
-            }
-            2 => {
-                p.check(
-                    taken.0 == 0 && health.0 > 0 && shield.0 == 0,
-                    format!("vehicle: {taken:?} {health:?} {shield:?}"),
-                );
-                // the '-' of damage taken in its newest slot (row 1)
-                let d = ink_in(&px, &[0x85969d], 42, 102);
-                p.check(d.0 > 0 && d.2 == 173 && d.3 >= 42 + 7 && d.4 < 42 + 18, format!("taken '-' {d:?}"));
-            }
-            _ => {
-                // unreadable: '-' in each newest slot, no numbers
-                p.check(taken.0 == 0 && health.0 == 0 && shield.0 == 0, format!("step {step}: numbers cleared"));
-                let d = (ink_in(&px, &[0x85969d], 42, 102), ink_in(&px, &[0x85969d], 102 + 61, 102 + 72));
-                p.check(d.0.0 > 0 && d.1.0 > 0 && d.1.1 >= 83 && d.1.2 == 173, format!("step {step}: '-' {d:?}"));
-            }
-        }
     }
     p.put("shown", format!("[{}]", shown.join(", ")));
     // the -37 of step 0 as traced poll by poll: full colour for two polls, three dim steps, gone on the fifth
@@ -593,17 +693,11 @@ fn probe_inside_owned_compositor() {
     }
     let mut ages: Vec<String> = Vec::new();
     for v in p.events().into_iter().skip(n0) {
-        let Some(Value::Array(cells)) = v.get("cells") else { continue };
         if v.get("event") != Some(&Value::Str("tick".into())) {
             continue;
         }
-        let c = cells.iter().find_map(|c| match c {
-            Value::Array(c) if c.get(3) == Some(&Value::Str("-37".into())) => match &c[4] {
-                Value::Str(s) => Some(s.clone()),
-                _ => None,
-            },
-            _ => None,
-        });
+        let Some((_, _, fills)) = traced_overlay(&v) else { continue };
+        let c = fills.iter().find(|f| OV_TAKEN.contains(&f.4.as_str())).map(|f| f.4.clone());
         let c = c.unwrap_or_else(|| "gone".into());
         if ages.last() != Some(&c) || c != "gone" {
             ages.push(c);
@@ -614,7 +708,7 @@ fn probe_inside_owned_compositor() {
     }
     let ages: Vec<&str> = ages.iter().map(String::as_str).skip_while(|c| *c == "gone").collect();
     p.check(
-        ages == ["#ee7868", "#ee7868", "#af5d53", "#7b4741", "#47312f", "gone"],
+        ages == ["#ff4d3d", "#ff4d3d", "#b63a2f", "#792923", "#3c1917", "gone"],
         format!("fade of -37 by poll: {ages:?}"),
     );
     let n = p.n();
@@ -679,29 +773,32 @@ fn probe_inside_owned_compositor() {
         let g = p.conn.get_geometry(win).unwrap().reply().unwrap();
         format!("[{}, {}]", g.width, g.height)
     };
-    // a flipped damage section forgets its numbers at once (Window::toggle), also with every section off, when
-    // no poll runs that could clear them
-    let has = |v: &Value, t: &str| matches!(v.get("cells"), Some(Value::Array(c)) if c.iter().any(|c| matches!(c, Value::Array(c) if c.get(3) == Some(&Value::Str(t.into())))));
+    // a flipped switch clears its overlay column at once (Window::toggle), also with every switch off, when no
+    // poll runs that could clear it
+    let taken = |v: &Value| has_fill(v, &OV_TAKEN);
+    let dealt = |v: &Value| has_fill(v, &OV_HEALTH) || has_fill(v, &OV_SHIELD);
+    let mapped = |v: &Value| traced_overlay(v).is_some_and(|o| o.0);
     let fresh = |p: &mut Probe| {
         let n = p.n();
-        p.set("step=1"); // unreadable: '-'
-        p.wait("the '-' step", n, |v| v.get("event") == Some(&Value::Str("tick".into())) && !has(v, "-37"));
+        p.set("step=1"); // unreadable: both columns cleared
+        p.wait("the cleared step", n, |v| v.get("event") == Some(&Value::Str("tick".into())) && !mapped(v));
         let n = p.n();
         p.set("step=0"); // a new step: -37, 120, 40 emitted on its first poll
-        p.wait("-37 on screen", n, |v| has(v, "-37"));
+        p.wait("-37 on screen", n, taken);
     };
     fresh(&mut p);
     click(&p, 80); // Taken off and straight on again
     let ev = click(&p, 80);
-    p.check(!has(&ev, "-37") && has(&ev, "-"), format!("taken off/on: no old number {:?}", ev.get("cells")));
+    p.check(!taken(&ev) && dealt(&ev) && mapped(&ev), "taken off/on: its column cleared, dealt kept".into());
     fresh(&mut p);
     click(&p, 10); // worm off
     let ev = click(&p, 150); // dealt off: -37 still shown (the case below is not empty)
-    p.check(has(&ev, "-37"), format!("-37 still shown before the last switch goes off {:?}", ev.get("cells")));
-    click(&p, 80); // taken off: every section off, no polls from here
+    p.check(taken(&ev) && !dealt(&ev), "-37 still shown before the last switch goes off".into());
+    click(&p, 80); // taken off: every switch off, no polls from here
     std::thread::sleep(Duration::from_millis(300));
+    p.check(!p.viewable(overlay), "every switch off: the overlay is unmapped".into());
     let ev = click(&p, 80);
-    p.check(!has(&ev, "-37") && has(&ev, "-"), format!("all off, then taken on: no old number {:?}", ev.get("cells")));
+    p.check(!taken(&ev) && !mapped(&ev), "all off, then taken on: no old number".into());
     click(&p, 10);
     click(&p, 150);
     let n = p.n();
@@ -718,6 +815,8 @@ fn probe_inside_owned_compositor() {
     p.keep(win, "window-no-taken.ppm");
     let mut corner_kept = p.root_pos(win) == corner;
     click(&p, 10);
+    p.put("size_worm_only_off", size(&p)); // dealt still on: header + status
+    corner_kept &= p.root_pos(win) == corner;
     click(&p, 150);
     p.put("size_all_off", size(&p));
     p.keep(win, "window-all-off.ppm");
@@ -820,6 +919,78 @@ fn probe_inside_owned_compositor() {
     };
     p.put("quit_exit_0", (code == Some(0)).to_string());
     p.put("after_quit", quote(&p.config()));
+    p.put("overlay_destroyed_on_quit", p.find("DeHulud Combat damage").is_none().to_string());
+
+    // a server without SHAPE (test hook): one line on stderr, no overlay window, the poll reads the worm only
+    let ns = dir.join("no-shape");
+    fs::create_dir_all(ns.join("cfg")).unwrap();
+    let (saved_out, saved_failures) = (p.out, p.failures);
+    let mut q = Probe {
+        conn: p.conn,
+        root,
+        trace: ns.join("trace.jsonl"),
+        ctl: ns.join("control"),
+        control: vec![],
+        failures: vec![],
+        out: vec![],
+        dir: ns.clone(),
+    };
+    for line in [
+        "poll_ms=40".to_string(),
+        format!("trace={}", ns.join("trace.jsonl").display()),
+        "no_shape=1".into(),
+        "reading=no permission|-|-|right-click||37|120/40".into(),
+        "step=0".into(),
+    ] {
+        q.set(&line);
+    }
+    let mut child = Command::new(&bin)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", ns.join("home"))
+        .env("XDG_CONFIG_HOME", ns.join("cfg"))
+        .env("DISPLAY", &display_name)
+        .env("XAUTHORITY", std::env::var("XAUTHORITY").unwrap_or_default())
+        .env("DEHULUD_TEST_SOURCE", ns.join("control"))
+        .stdout(fs::File::create(ns.join("dehulud.out")).unwrap())
+        .stderr(fs::File::create(ns.join("dehulud.err")).unwrap())
+        .spawn()
+        .unwrap();
+    let first = q.wait("the window", 0, |v| matches!(v.get("window"), Some(Value::Int(Some(w))) if *w != 0));
+    let Some(Value::Int(Some(nwin))) = first.get("window") else { unreachable!() };
+    let nwin = *nwin as u32;
+    for _ in 0..3 {
+        q.wait("a tick", q.n(), |v| v.get("event") == Some(&Value::Str("tick".into())));
+    }
+    let polls: Vec<Value> =
+        q.events().into_iter().filter(|v| v.get("event") == Some(&Value::Str("poll".into()))).collect();
+    let worm_only = !polls.is_empty()
+        && polls.iter().all(|v| matches!(v.get("enabled"), Some(Value::Array(a)) if *a == [Value::Str("worm".into())]));
+    let n = q.n();
+    q.menu(nwin, "Help / details");
+    let ev = q.wait("a help window", n, |v| matches!(v.get("help"), Some(Value::Int(Some(_)))));
+    let help_ok = matches!(ev.get("help_text"), Some(Value::Str(t)) if t.ends_with("\ndamage numbers need the X SHAPE extension"));
+    let no_overlay = first.get("overlay") == Some(&Value::Null) && q.find("DeHulud Combat damage").is_none();
+    q.set("stop=1");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if child.try_wait().unwrap().is_none() {
+        let _ = child.kill(); // our own child, stuck
+        let _ = child.wait();
+    }
+    let err = fs::read_to_string(ns.join("dehulud.err")).unwrap_or_default();
+    let once = err.lines().filter(|l| *l == "damage numbers need the X SHAPE extension").count() == 1;
+    let out = vec![
+        ("no_shape_line_once".to_string(), once.to_string()),
+        ("no_shape_stderr".to_string(), quote(&err)),
+        ("no_shape_no_overlay".to_string(), no_overlay.to_string()),
+        ("no_shape_reads_worm_only".to_string(), worm_only.to_string()),
+        ("no_shape_help".to_string(), help_ok.to_string()),
+    ];
+    let mut p = Probe { out: saved_out, failures: saved_failures, ..q };
+    p.out.extend(out);
 
     let failures: Vec<String> = p.failures.iter().map(|f| quote(f)).collect();
     p.out.push(("failures".into(), format!("[{}]", failures.join(", "))));

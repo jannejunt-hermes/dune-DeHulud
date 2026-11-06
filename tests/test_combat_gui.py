@@ -57,28 +57,38 @@ class CombatGui(unittest.TestCase):
         self.assertTrue(r["screen"].startswith("unix/:"), r["screen"])  # Tk got the Unix-socket-only name
         self.assertEqual(r["topmost"], 1)
         self.assertTrue(r["frameless"])
-        self.assertEqual(r["size"], [180, 198])        # all three sections on by default
+        self.assertEqual(r["size"], [180, 62])         # header, worm meter, status line
         self.assertEqual(r["shown"][0], ["42%", "on foot", "#c7df7a", ""])
         self.assertEqual(r["shown"][1], ["-", "Unsupported game version", "#85969d", "PE 1700000000"])
         self.assertEqual(r["shown"][2], ["100%", "vehicle", "#ee7868", ""])
         self.assertEqual(r["shown"][3], ["-", "no permission", "#85969d", "right-click"])
-        for boxes in r["boxes"]:                        # the worm section is y 18..42, the status line 178..198
+        for boxes in r["boxes"]:                        # the worm section is y 18..42, the status line 42..62
             for name, box in boxes.items():
                 if box:
-                    lo, hi = (178, 198) if name == "status" else (18, 42)
+                    lo, hi = (42, 62) if name == "status" else (18, 42)
                     self.assertTrue(0 <= box[0] and box[2] <= 180 and lo <= box[1] and box[3] <= hi, (name, box))
             self.assertGreaterEqual(boxes["pct"][0], 130)  # the percent never covers the bar (x 44..130)
             if boxes["hint"]:
                 self.assertTrue(44 <= boxes["hint"][0] and boxes["hint"][2] <= 130, boxes["hint"])
         self.assertEqual(r["help"], "FIX: sudo sysctl")
-        click = r["after_click"]                         # Taken switched off: saved, 60 px less, corner kept
+        click = r["after_click"]                         # Taken switched off: saved, same size, corner kept
         self.assertEqual(click["config"], {"x": None, "y": None, "frame": False, "worm": True, "damage_taken": False, "damage_dealt": True})
-        self.assertEqual(click["size"], [180, 138])
+        self.assertEqual(click["size"], [180, 62])
         self.assertEqual(click["pos"], [1280 - 180 - 24, 48])
         self.assertEqual(r["after_drag"], {"x": 130, "y": 70, "frame": False, "worm": True, "damage_taken": False, "damage_dealt": True})
         self.assertEqual(r["after_frame"]["frame"], True)
         self.assertEqual(r["after_reset"], {"x": None, "y": None, "frame": True, "worm": True, "damage_taken": False, "damage_dealt": True})
         self.assertTrue(r["destroyed"])
+        # the damage overlay (1280 x 800 virtual output: s = 1, 102 x 52 at 589, 200)
+        self.assertTrue(r["overlay_unmapped_at_start"])
+        ov = r["overlay"]
+        self.assertEqual(ov["state"]["geometry"], [589, 200, 102, 52, 1, 1])
+        self.assertEqual((ov["title"], ov["rootxy"], ov["size"]), ("DeHulud Combat damage", [589, 200], [102, 52]))
+        self.assertTrue(ov["frame_is_mapped_window"] and ov["override_redirect"] and ov["viewable"], ov)
+        self.assertTrue(ov["state"]["mapped"] and ov["state"]["outlines"], ov)
+        self.assertEqual(ov["input_rects"], 0)
+        self.assertTrue(ov["bounding_is_outlines"])
+        self.assertEqual(r["overlay_after"], {"mapped": False, "ismapped": False})
 
 
 if __name__ == "__main__":

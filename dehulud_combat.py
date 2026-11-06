@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
 """DeHulud Combat - sandworm threat meter, damage taken and damage dealt, for Dune: Awakening on Linux.
 
-Shows how close you are to the sandworm attack threshold (a percent and a bar), the damage you take
-and the damage you deal, in a small always-on-top window with a switch for each of the three
-sections (or the worm meter as one terminal line). It finds the running game (Proton) by itself.
-Needs dehulud.py next to it.
+Shows how close you are to the sandworm attack threshold (a percent and a bar) in a small
+always-on-top window with a switch for the worm meter, damage taken and damage dealt (or the worm
+meter as one terminal line). The damage numbers appear on screen, centred about a quarter of the way
+down: damage taken in red on the left, damage dealt in blue on the right. It finds the running game
+(Proton) by itself. Needs dehulud.py next to it.
 
   dehulud_combat.py                    window (falls back to text without tkinter or a local X display)
   dehulud_combat.py --text             one-line worm meter in the terminal
   dehulud_combat.py --launch %command% Steam launch options: starts the game as a child of DeHulud
                                        Combat, so a ptrace_scope of 1 (descendants only) allows the read
   --no-worm, --no-taken, --no-dealt
-                                       start with that section of the window switched off, for this run
-                                       only (a click on its label in the window's header row switches it
-                                       and is saved); text mode shows only the worm meter, so --text
-                                       refuses --no-worm
+                                       start with that switch off, for this run only (a click on its
+                                       label in the window's header row switches it and is saved); text
+                                       mode shows only the worm meter, so --text refuses --no-worm
 
 Read-only: it reads /proc/<pid>/{cmdline,maps,status} of your own processes, the game's memory with
 process_vm_readv, the ptrace setting, /etc/os-release and its own config file. It never writes to the
 game, never attaches a debugger, never signals or injects anything, sends no input and opens no network
-connection (the window only opens a local X display, through its Unix socket).
+connection (the window only opens a local X display, through its Unix socket). The damage numbers
+need the X SHAPE extension (any usual desktop has it).
 Python 3.9+, standard library only.
 """
 import collections
+import ctypes
 import math
 import os
 import struct
@@ -40,11 +42,11 @@ Reading = collections.namedtuple("Reading", "status percent fraction detail hint
                                  defaults=(None, None, "", "", None, None))
 Reading.__doc__ = """One poll: percent/fraction are None whenever the meter must show '-'.
 
-taken and dealt are what the poll hands the two damage sections of the window (None for a section the poll did
-not read, and whenever nothing trustworthy was read: the section then shows '-'):
+taken and dealt are what the poll hands the damage overlay (None for a feature the poll did not read, and
+whenever nothing trustworthy was read: that column is then cleared):
   taken: None, or a tuple of the health drops emitted in this poll (at most one non-negative number)
   dealt: None, or (health, shield): two tuples of the drops emitted in this poll (at most one number each)
-When a number is emitted is the reader's business; ages, history, fading and capping are the window's."""
+When a number is emitted is the reader's business; ages, history, fading and capping are the overlay's."""
 
 # The window's three switchable sections: config keys in header order, and their command-line flags.
 FEATURES = ("worm", "damage_taken", "damage_dealt")
@@ -432,22 +434,14 @@ def run_text(meter, out=None, err=None, should_stop=lambda: False, sleep=time.sl
     dehulud.run_text(WormOnly(), out, err, should_stop, sleep)
 
 
-SECTIONS = (("header", 18), ("worm", 24), ("damage_taken", 60), ("damage_dealt", 76), ("status", 20))
+SECTIONS = (("header", 18), ("worm", 24), ("status", 20))   # the damage numbers are in the overlay
 HEADER_ZONES = (("worm", 0, 56, 6, "Worm"), ("damage_taken", 57, 116, 60, "Taken"),
                 ("damage_dealt", 117, 179, 120, "Dealt"))   # feature, click zone x0..x1, text x, label
 CLICK_PX = 3            # a press that moves this far (in x or y) is a drag, not a click
 LIFE = 5                # a number is removed on its fifth poll (shown at ages 0..4)
 ROWS = 4                # numbers per column
 CAP = 99999             # at most five digits
-LABEL, OFF, DASH = "#d8cfb4", "#6b7174", "#85969d"
-RED, AMBER, TEAL = "#ee7868", "#e8bf70", "#8ad4c8"
-# Colour by age in polls: full at ages 0 and 1, then blended towards the background at 70, 45 and 20 %.
-FADE = {RED: (RED, RED, "#af5d53", "#7b4741", "#47312f"),
-        AMBER: (AMBER, AMBER, "#ab8f58", "#786745", "#463f31"),
-        TEAL: (TEAL, TEAL, "#699e96", "#4e706c", "#334342")}
-TAKEN_TOPS = (7, 20, 33, 46)      # top of the big glyphs per row in the Damage taken section; row 1 = newest
-DEALT_TOPS = (22, 35, 48, 61)     # ... in the Damage dealt section; row 4 = newest
-
+LABEL, OFF = "#d8cfb4", "#6b7174"
 
 def layout(enabled):
     """([(section, y), ...], height) of the window for the set of enabled features."""
@@ -480,78 +474,12 @@ def header_cells(enabled):
 
 
 def shown_number(v):
-    """The whole points the window shows for an emitted drop (capped at five digits), or None for nothing."""
+    """The whole points the overlay shows for an emitted drop (capped at five digits), or None for nothing."""
     if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0:
         return None
     n = math.floor(v + 0.5)
     return min(n, CAP) if n > 0 else None
 
-
-class Column:
-    """One column of damage numbers, newest first, each with its age in polls; or '-' after an unreadable poll."""
-
-    def __init__(self):
-        self.items, self.dash = [], True     # nothing read yet: '-'
-
-    def step(self, emitted):
-        """One poll: None = nothing trustworthy (clear, '-'), else a tuple of the numbers emitted in this poll."""
-        if emitted is None:
-            self.items, self.dash = [], True
-            return
-        self.dash = False
-        self.items = [(n, age + 1) for n, age in self.items if age + 1 < LIFE]
-        for v in emitted:
-            n = shown_number(v)
-            if n is not None:
-                self.items.insert(0, (n, 0))
-        del self.items[ROWS:]
-
-
-class DamageView:
-    """What the two damage sections show: the Damage taken column and the Damage dealt health/shield columns."""
-
-    def __init__(self):
-        self.taken, self.health, self.shield = Column(), Column(), Column()
-
-    def reset(self, feature):
-        """Forgets a damage section's numbers (its switch was flipped): it starts again with '-'."""
-        if feature == "damage_taken":
-            self.taken = Column()
-        elif feature == "damage_dealt":
-            self.health, self.shield = Column(), Column()
-
-    def step(self, r, enabled):
-        """One poll's reading. A section that is off forgets its numbers (it starts with '-' when switched on)."""
-        if "damage_taken" in enabled:
-            self.taken.step(r.taken)
-        else:
-            self.taken = Column()
-        if "damage_dealt" in enabled:
-            health, shield = r.dealt if r.dealt is not None else (None, None)
-            self.health.step(health)
-            self.shield.step(shield)
-        else:
-            self.health, self.shield = Column(), Column()
-
-
-def damage_cells(view, enabled):
-    """The numbers to draw: [(section, right x, top y in the section, text, colour)], big font, right-aligned."""
-    out = []
-
-    def column(section, col, right, tops, colour, sign):
-        if col.dash:
-            out.append((section, right, tops[0] if section == "damage_taken" else tops[-1], "-", DASH))
-            return
-        for i, (n, age) in enumerate(col.items):
-            top = tops[i] if section == "damage_taken" else tops[ROWS - 1 - i]
-            out.append((section, right, top, sign + str(n), FADE[colour][age]))
-
-    if "damage_taken" in enabled:
-        column("damage_taken", view.taken, 174, TAKEN_TOPS, RED, "-")
-    if "damage_dealt" in enabled:
-        column("damage_dealt", view.health, 122, DEALT_TOPS, AMBER, "")
-        column("damage_dealt", view.shield, 174, DEALT_TOPS, TEAL, "")
-    return out
 
 
 # The damage overlay: what it shows and where (no window code).
@@ -671,6 +599,140 @@ def read_features(enabled, overlay_ok):
     return set(enabled) if overlay_ok else set(enabled) - {"damage_taken", "damage_dealt"}
 
 
+class _XRectangle(ctypes.Structure):
+    """XRectangle (Xlib)."""
+    _fields_ = [("x", ctypes.c_short), ("y", ctypes.c_short), ("width", ctypes.c_ushort), ("height", ctypes.c_ushort)]
+
+
+SHAPE_BOUNDING, SHAPE_INPUT = 0, 2    # ShapeBounding, ShapeInput (X SHAPE extension)
+
+
+class XShape:
+    """An Xlib connection to the local display with the X SHAPE extension (1.1 or later, for the input shape):
+    sets a window's bounding or input shape to a list of rectangles. See xshape()."""
+
+    def __init__(self, x11, xext, dpy):
+        self.x11, self.xext, self.dpy = x11, xext, dpy
+
+    def combine(self, window, kind, rects):
+        """Sets shape `kind` (SHAPE_BOUNDING or SHAPE_INPUT) of `window` to the union of rects [(x, y, w, h)]
+        (an empty list: nothing), and sends it at once."""
+        arr = (_XRectangle * len(rects))(*[_XRectangle(*r) for r in rects])
+        self.xext.XShapeCombineRectangles(self.dpy, window, kind, 0, 0, arr, len(rects), 0, 0)  # ShapeSet, Unsorted
+        self.x11.XFlush(self.dpy)
+
+    def close(self):
+        if self.dpy:
+            self.x11.XCloseDisplay(self.dpy)
+            self.dpy = None
+
+
+def xshape(display_name):
+    """An XShape for the X display `display_name` (opened as 'unix/:N', see local_display), or None: not a local
+    display, libX11/libXext or a symbol missing, the display cannot be opened, or no SHAPE 1.1 on the server."""
+    name = local_display(display_name)
+    if name is None:
+        return None
+    try:
+        x11, xext = ctypes.CDLL("libX11.so.6"), ctypes.CDLL("libXext.so.6")
+        x11.XOpenDisplay.restype, x11.XOpenDisplay.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
+        x11.XCloseDisplay.argtypes = x11.XFlush.argtypes = [ctypes.c_void_p]
+        xext.XShapeQueryExtension.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
+                                              ctypes.POINTER(ctypes.c_int)]
+        xext.XShapeQueryVersion.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
+                                            ctypes.POINTER(ctypes.c_int)]
+        xext.XShapeCombineRectangles.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                                                 ctypes.c_int, ctypes.POINTER(_XRectangle), ctypes.c_int,
+                                                 ctypes.c_int, ctypes.c_int]
+    except (OSError, AttributeError):        # no library, or no such symbol
+        return None
+    dpy = x11.XOpenDisplay(name.encode())
+    if not dpy:
+        return None
+    a, b = ctypes.c_int(0), ctypes.c_int(0)
+    if (not xext.XShapeQueryExtension(dpy, ctypes.byref(a), ctypes.byref(b))
+            or not xext.XShapeQueryVersion(dpy, ctypes.byref(a), ctypes.byref(b)) or (a.value, b.value) < (1, 1)):
+        x11.XCloseDisplay(dpy)
+        return None
+    return XShape(x11, xext, dpy)
+
+
+def overlay_canvas_items(outlines, fills):
+    """What the overlay draws, in order: [(x0, y0, x1, y1, colour)], every outline rectangle first, then every fill
+    (x1, y1 exclusive, as a canvas rectangle without an outline fills them)."""
+    return ([(x, y, x + w, y + h, OUTLINE) for x, y, w, h in outlines]
+            + [(x, y, x + w, y + h, colour) for x, y, w, h, colour in fills])
+
+
+class NoOverlay(Exception):
+    """The overlay window could not be set up (Tk gave no X window to shape)."""
+
+
+class OverlayWindow:
+    """The damage overlay: a Tk Toplevel of the window's root, override-redirect and on top, cut to the outlines
+    of its numbers with the X SHAPE extension (bounding shape = the outline rectangles, input shape empty),
+    placed once (geometry: overlay_geometry), mapped and raised only while it has a number to show."""
+
+    def __init__(self, tk, root, xs, geometry):
+        self.xs, self.geometry = xs, tuple(geometry)
+        self.mapped, self.outlines, self.fills = False, [], []
+        x, y, w, h, _, _ = self.geometry
+        top = self.top = tk.Toplevel(root)
+        top.withdraw()
+        top.overrideredirect(True)
+        top.title(OVERLAY_TITLE)
+        self.canvas = tk.Canvas(top, width=w, height=h, bg=OUTLINE, highlightthickness=0)
+        self.canvas.pack()
+        # Tk creates the X window it maps (the toplevel's wrapper, `wm frame`) on the first map: map it once off
+        # every screen, shape it (empty: nothing of it is shown), unmap it, then put it in its place.
+        top.geometry("%dx%d+%d+%d" % (w, h, -w - 10000, -h - 10000))
+        top.deiconify()
+        top.update_idletasks()
+        self.xid = int(top.wm_frame(), 16)
+        root.winfo_pointerxy()               # a round trip: Tk's requests reach the server before the shapes
+        if not self.xid:                     # never hand Xlib a window id of 0 (its error would end the program)
+            top.destroy()
+            raise NoOverlay("no X window for the overlay")
+        xs.combine(self.xid, SHAPE_INPUT, [])
+        xs.combine(self.xid, SHAPE_BOUNDING, [])
+        top.withdraw()
+        top.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        top.attributes("-topmost", True)
+
+    def update(self, view):
+        """Brings the window in line with `view` (an Overlay): unmapped while it is empty; otherwise shaped to
+        the outline rectangles, mapped and raised (when it was not mapped), and its numbers drawn."""
+        _, _, _, _, s, o = self.geometry
+        outlines, fills = overlay_rects(view, s, o)
+        outlines, fills = [tuple(r) for r in outlines], [tuple(f) for f in fills]
+        if view.empty() or not outlines:
+            if self.mapped:
+                self.top.withdraw()
+            self.mapped, self.outlines, self.fills = False, [], []
+            return
+        changed = not self.mapped or outlines != self.outlines or fills != self.fills
+        if not self.mapped or outlines != self.outlines:
+            self.xs.combine(self.xid, SHAPE_BOUNDING, outlines)
+        if not self.mapped:
+            self.top.deiconify()
+            self.top.lift()
+            self.top.attributes("-topmost", True)
+        self.mapped, self.outlines, self.fills = True, outlines, fills
+        if changed:
+            c = self.canvas
+            c.delete("all")
+            for x0, y0, x1, y1, colour in overlay_canvas_items(outlines, fills):
+                c.create_rectangle(x0, y0, x1, y1, fill=colour, width=0)
+
+    def state(self):
+        """The overlay as the tests see it: geometry [x, y, w, h, s, o], mapped, outlines, fills."""
+        return {"geometry": list(self.geometry), "mapped": self.mapped,
+                "outlines": [list(r) for r in self.outlines], "fills": [list(f) for f in self.fills]}
+
+    def close(self):
+        self.xs.close()
+
+
 DEFAULTS = {"x": None, "y": None, "frame": False, "worm": True, "damage_taken": True, "damage_dealt": True}
 
 
@@ -690,18 +752,20 @@ def save_config(path, cfg):
 
 
 class Window:
-    """Always-on-top window, 180 px wide: a header row with the three section switches, then the sections that
-    are on (worm meter, Damage taken, Damage dealt) and the status line. Drag to move, click a switch to flip
-    it, right-click for the menu. The height follows the sections; the top-left corner stays where it is."""
+    """Always-on-top window, 180 px wide: a header row with the three switches (worm meter, damage taken, damage
+    dealt), the worm meter when it is on and the status line. Drag to move, click a switch to flip it, right-click
+    for the menu. The height follows the switches; the top-left corner stays where it is. The damage numbers are
+    in a second window, the overlay (OverlayWindow), when the X server has the SHAPE extension."""
     W, BAR = 180, (44, 6, 130, 18)
 
-    def __init__(self, tk, meter, config_file, should_stop=lambda: False, display=None, off=()):
+    def __init__(self, tk, meter, config_file, should_stop=lambda: False, display=None, off=(), shape=None):
         """`display` defaults to $DISPLAY; only a local display is opened (see local_display). `off`: features
-        switched off by a command-line flag, for this run only (never saved)."""
+        switched off by a command-line flag, for this run only (never saved). `shape`: None = use the X SHAPE
+        extension when the server has it; False = act as without it (no overlay)."""
         self.tk, self.meter, self.path, self.should_stop = tk, meter, config_file, should_stop
         self.cfg, self.drag, self.after_id, self.said = load_config(config_file), None, None, None
         self.off, self.press, self.moved = set(off) & ALL, None, False
-        self.reading, self.view = Reading("waiting for game"), DamageView()
+        self.reading, self.view, self.overlay = Reading("waiting for game"), Overlay(), None
         self.pct = self.status = self.fill = self.hint = None     # the worm meter's items while it is shown
         name = os.environ.get("DISPLAY", "") if display is None else display
         screen = local_display(name)
@@ -726,6 +790,23 @@ class Window:
         self.place()
         self._apply_frame()
         self.draw()
+        xs = None if shape is False else xshape(screen)
+        if xs is not None:
+            sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+            mon = overlay_monitor(monitors(root.winfo_screen()), (0, 0, sw, sh))
+            try:
+                self.overlay = OverlayWindow(tk, root, xs, overlay_geometry(mon))
+            except NoOverlay:
+                xs.close()
+            except Exception:
+                xs.close()
+                raise
+        if self.overlay is None:
+            print(NO_SHAPE, file=sys.stderr)
+
+    def overlay_state(self):
+        """The overlay as the tests see it (see OverlayWindow.state), or None without an overlay."""
+        return None if self.overlay is None else self.overlay.state()
 
     @property
     def enabled(self):
@@ -764,7 +845,9 @@ class Window:
         flag's override of that switch ends with it). The other switches keep their saved values."""
         self.cfg[feature] = feature not in self.enabled
         self.off.discard(feature)
-        self.view.reset(feature)                 # at once: with every section off no poll would clear it
+        self.view.reset(feature)                 # at once: with every switch off no poll would clear it
+        if self.overlay is not None:
+            self.overlay.update(self.view)
         reset = getattr(self.meter, "reset", None)   # the readers forget it too (a stand-in meter may lack it)
         if reset is not None:
             reset(feature)
@@ -776,7 +859,11 @@ class Window:
 
     def show_help(self):
         from tkinter import messagebox
-        messagebox.showinfo(APP, self.reading.detail or __doc__, parent=self.root)
+        messagebox.showinfo(APP, self.reading.detail or self.help_text(), parent=self.root)
+
+    def help_text(self):
+        """The help text: this file's, and without an overlay the line that says why."""
+        return __doc__ if self.overlay is not None else __doc__.rstrip("\n") + "\n" + NO_SHAPE
 
     def _menu(self, e):
         self.menu.tk_popup(e.x_root, e.y_root)
@@ -806,7 +893,7 @@ class Window:
                 self.toggle(header_zone(e.x, e.y))
 
     def draw(self):
-        """Draws the whole window for the current reading and damage numbers."""
+        """Draws the whole window for the current reading."""
         c, r, en = self.canvas, self.reading, self.enabled
         small, bold, big = ("TkDefaultFont", 8), ("TkDefaultFont", 8, "bold"), ("TkDefaultFont", 11, "bold")
         c.delete("all")
@@ -826,22 +913,14 @@ class Window:
                                           fill="#b8c0c4", font=("TkDefaultFont", 7))
                 self.pct = c.create_text(self.W - 6, y + 12, anchor="e", fill="#f0f0f0", font=big,
                                          text="-" if r.percent is None else "%d%%" % r.percent)
-            elif name == "damage_taken":
-                c.create_text(6, y + 12, anchor="w", text="TAKEN", fill=LABEL, font=bold)
-            elif name == "damage_dealt":
-                c.create_text(6, y + 12, anchor="w", text="DEALT", fill=LABEL, font=bold)
-                c.create_text(122, y + 12, anchor="e", text="HEALTH", fill=AMBER, font=small)
-                c.create_text(174, y + 12, anchor="e", text="SHIELD", fill=TEAL, font=small)
             elif name == "status":
                 self.status = c.create_text(6, y + 8, anchor="w", text=r.status, fill="#aab4b8", font=small)
-        tops = dict(sections)
-        for section, right, top, text, colour in damage_cells(self.view, en):
-            # the big font's glyph top at `top`: Tk centres the text, so the anchor is 5 px lower (as the percent)
-            c.create_text(right, tops[section] + top + 5, anchor="e", text=text, fill=colour, font=big)
 
     def show(self, r):
         self.reading = r
         self.view.step(r, self.enabled)
+        if self.overlay is not None:
+            self.overlay.update(self.view)   # numbers age (fade) every poll
         self.draw()
         if r.detail and r.detail != self.said:
             print(r.detail, file=sys.stderr)
@@ -852,7 +931,8 @@ class Window:
             return self.quit()
         if self.enabled:                         # every section off: nothing is read
             try:
-                r = self.meter.poll(self.enabled)
+                # without an overlay the damage numbers have nowhere to go: they are not read
+                r = self.meter.poll(read_features(self.enabled, self.overlay is not None))
             except Exception as e:               # keep the window alive; say what happened
                 r = Reading("error: %s" % type(e).__name__, detail=repr(e))
             self.show(r)
@@ -868,6 +948,8 @@ class Window:
         elif self.cfg["x"] is not None:
             self.cfg["x"], self.cfg["y"] = self.pos
         save_config(self.path, self.cfg)
+        if self.overlay is not None:
+            self.overlay.close()
         self.root.destroy()
 
     def run(self):

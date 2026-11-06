@@ -18,24 +18,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub const USAGE: &str =
     "DeHulud Combat - sandworm threat meter, damage taken and damage dealt, for Dune: Awakening on Linux.
 
-Shows how close you are to the sandworm attack threshold (a percent and a bar), the damage you take
-and the damage you deal, in a small always-on-top window with a switch for each of the three
-sections (or the worm meter as one terminal line). It finds the running game (Proton) by itself.
+Shows how close you are to the sandworm attack threshold (a percent and a bar) in a small
+always-on-top window with a switch for the worm meter, damage taken and damage dealt (or the worm
+meter as one terminal line). The damage numbers appear on screen, centred about a quarter of the way
+down: damage taken in red on the left, damage dealt in blue on the right. It finds the running game
+(Proton) by itself.
 
   dehulud-combat                    window (falls back to text without a local X display)
   dehulud-combat --text             one-line worm meter in the terminal
   dehulud-combat --launch %command% Steam launch options: starts the game as a child of DeHulud
                                     Combat, so a ptrace_scope of 1 (descendants only) allows the read
   --no-worm, --no-taken, --no-dealt
-                                    start with that section of the window switched off, for this run
-                                    only (a click on its label in the window's header row switches it
-                                    and is saved); text mode shows only the worm meter, so --text
-                                    refuses --no-worm
+                                    start with that switch off, for this run only (a click on its
+                                    label in the window's header row switches it and is saved); text
+                                    mode shows only the worm meter, so --text refuses --no-worm
 
 Read-only: it reads /proc/<pid>/{cmdline,maps,status} of your own processes, the game's memory with
 process_vm_readv, the ptrace setting and its own config file. It never writes to the game, never
 attaches a debugger, never signals or injects anything, sends no input and opens no network
-connection (the window only opens a local X display, through its Unix socket).
+connection (the window only opens a local X display, through its Unix socket). The damage numbers
+need the X SHAPE extension (any usual desktop has it).
 One static binary: no Python, no toolkit, no other files needed.";
 
 /// `--text` with `--no-worm`: the terminal line is the worm meter's, and it is switched off.
