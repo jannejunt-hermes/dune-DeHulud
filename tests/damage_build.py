@@ -37,10 +37,23 @@ LAYOUT = {
 }
 
 
+LAYOUT_26548928 = dict(LAYOUT,
+    attributes=0x1410,              # ADuneCharacter.m_DuneCharacterAttributeSet
+    aim=0x1E68,                     # ADunePlayerCharacter.m_CachedAimTarget
+    soft_lock=0x1D90,               # ADunePlayerCharacter.m_SoftLockTarget
+    gworld=0xC252308,               # GWorld
+    attribute_class_slot=0xBEC4CE0, # UDuneCharacterAttributeSet
+    controller_class_slot=0xBEF4450, # ADunePlayerController
+    inventory_class_slot=0xBF4BDF8, # UInventoryCoordinator
+    chunks_slot=0xC0B6B30,          # GUObjectArray.ObjObjects.Objects
+    count_slot=0xC0B6B44)           # GUObjectArray.ObjObjects.NumElements
+
+
 class BoundDamageModel(DamageModel):
     """Share the threat arena's actual controller, character and native classes."""
-    def __init__(self, image_base, objects, external_put, external_read, remap_image):
-        self.layout = dict(LAYOUT)
+    def __init__(self, image_base, objects, external_put, external_read, remap_image, build="26333948"):
+        self.build = build
+        self.layout = dict(LAYOUT_26548928 if build == "26548928" else LAYOUT)
         self.memory = mmap.mmap(-1, self.layout["arena_size"])
         self.base = ctypes.addressof(ctypes.c_char.from_buffer(self.memory))
         self.next_offset = 0
@@ -200,7 +213,7 @@ class BoundDamageModel(DamageModel):
 
     def info(self):
         result = super().info()
-        result.update({"bound_build": "26333948", "image_base": self.image_base,
+        result.update({"bound_build": self.build, "image_base": self.image_base,
                        "world_address": self.worlds[self.world], "attributes": self.attributes,
                        "vital_addresses": {name: {key: self.vital_address(name, key)
                                                   for key in ("health", "maximum", "shield")}

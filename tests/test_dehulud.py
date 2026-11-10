@@ -16,7 +16,7 @@ from unittest import mock
 from support import ROOT, FakeGame, FakeSource, GameTest, dehulud
 
 SOURCE_FILE = os.path.join(ROOT, "dehulud.py")
-COMP, BLOB, THR = "char_comp", "0x334", "0x348"
+COMP, BLOB, THR = "char_comp", "blob", "threshold"
 
 
 class Build(GameTest):
@@ -26,8 +26,9 @@ class Build(GameTest):
         self.assertEqual(self.meter.game[2]["build"], "26083551")
 
     def test_builds_table_identity(self):
-        self.assertEqual(list(dehulud.BUILDS), [(1793384724, 220024832), (1793030166, 219996160), (1792504044, 220008448)])
-        self.assertEqual([b["build"] for b in dehulud.BUILDS.values()], ["26333948", "26224975", "26083551"])
+        self.assertEqual(list(dehulud.BUILDS), [(1794246991, 217268224), (1793384724, 220024832),
+                                             (1793030166, 219996160), (1792504044, 220008448)])
+        self.assertEqual([b["build"] for b in dehulud.BUILDS.values()], ["26548928", "26333948", "26224975", "26083551"])
 
 
 class BuildCurrent(GameTest):
@@ -63,6 +64,25 @@ class Build26333948(GameTest):
     def test_other_builds_slots_are_not_used(self):
         new = dehulud.BUILDS[(1793384724, 220024832)]
         for ident in ((1793030166, 219996160), (1792504044, 220008448)):
+            for key in ("gworld",) + dehulud.CLASS_SLOTS:
+                self.assertNotEqual(dehulud.BUILDS[ident][key], new[key], key)
+        self.poll()
+        self.assertIs(self.meter.game[2], new)
+
+
+class Build26548928(GameTest):
+    extra = ("--build", "26548928")
+
+    def test_build_26548928_is_recognised(self):
+        self.assertEqual((self.game.build, self.game.timestamp, self.game.size), ("26548928", 1794246991, 217268224))
+        r = self.poll()
+        self.assertEqual((r.status, r.percent), ("on foot", 42))
+        self.assertEqual(self.meter.game[2]["build"], "26548928")
+        self.assertEqual(self.meter.reads, 1 + 8 + 21)
+
+    def test_other_builds_slots_are_not_used(self):
+        new = dehulud.BUILDS[(1794246991, 217268224)]
+        for ident in ((1793384724, 220024832), (1793030166, 219996160), (1792504044, 220008448)):
             for key in ("gworld",) + dehulud.CLASS_SLOTS:
                 self.assertNotEqual(dehulud.BUILDS[ident][key], new[key], key)
         self.poll()
@@ -106,7 +126,7 @@ class ImageReplaced(GameTest):
     def test_exec_into_the_same_build_keeps_reading(self):
         self.assertEqual(self.poll().percent, 42)
         self.game.exec_image(self.game.timestamp)
-        self.game.cmd("f char_comp 0x334 61")
+        self.game.cmd("f char_comp blob 61")
         self.assertEqual((self.poll().status, self.poll().percent), ("on foot", 61))
 
     def test_image_is_checked_with_one_read_per_poll(self):
@@ -126,74 +146,74 @@ class Route(GameTest):
         self.assertEqual(self.meter.reads, 21)
 
     def test_vehicle(self):
-        self.game.cmd("p pc 0x388 veh")                 # AController.Pawn = the sandbike
+        self.game.cmd("p pc pawn veh")                 # AController.Pawn = the sandbike
         r = self.poll(2)
         self.assertEqual((r.status, r.percent), ("vehicle", 80))
         self.assertEqual(self.meter.reads, 20)
-        self.game.cmd("p pc 0x388 char")                # back on foot
+        self.game.cmd("p pc pawn char")                # back on foot
         self.assertEqual(self.poll().percent, 42)
 
     def test_vehicle_component_wins_over_character(self):
-        self.game.cmd("p pc 0x388 veh")
-        self.game.cmd("f char_comp 0x334 10")
+        self.game.cmd("p pc pawn veh")
+        self.game.cmd("f char_comp blob 10")
         self.assertEqual(self.poll().percent, 80)
 
     def test_the_possessed_character_is_read(self):
-        self.game.cmd("p pc 0x388 char2")               # Pawn == AcknowledgedPawn == the second character
-        self.game.cmd("p pc 0x3f0 char2")
+        self.game.cmd("p pc pawn char2")               # Pawn == AcknowledgedPawn == the second character
+        self.game.cmd("p pc ack char2")
         self.assertEqual((self.poll().status, self.poll().percent), ("on foot", 7))
 
     # Owner selection: the possessed Pawn decides. A vehicle when it passes the ADuneVehicle check; the
     # character when it passes both character checks AND is the AcknowledgedPawn. Anything else shows '-',
     # never the value of another object (in every case below, another object holds a valid 42 % or 7 %).
     def test_pawn_null_is_dash_not_the_acknowledged_character(self):
-        r = self.assertDash("p pc 0x388 0")
+        r = self.assertDash("p pc pawn 0")
         self.assertEqual(r.status, "not in world")
 
     def test_vehicle_failing_its_class_check_is_dash_not_the_character(self):
-        r = self.assertDash("p pc 0x388 veh", "p veh 0x10 c_bogus")
+        r = self.assertDash("p pc pawn veh", "p veh class c_bogus")
         self.assertEqual(r.status, "no data")
 
     def test_vehicle_deeper_than_the_depth_limit_is_dash_not_the_character(self):
         # BP_Bike(0) -> Wheeled(1) -> c_bogus(2) -> c_world(3) -> c_lp(4) -> ADuneVehicle(5)
-        r = self.assertDash("p c_wheeled 0x40 c_bogus", "p c_bogus 0x40 c_world", "p c_world 0x40 c_lp",
-                            "p c_lp 0x40 c_veh", "p pc 0x388 veh")
+        r = self.assertDash("p c_wheeled super c_bogus", "p c_bogus super c_world", "p c_world super c_lp",
+                            "p c_lp super c_veh", "p pc pawn veh")
         self.assertEqual(r.status, "no data")
 
     def test_character_pawn_with_another_acknowledged_pawn_is_dash(self):
-        r = self.assertDash("p pc 0x3f0 char2")         # Pawn: character (42 %), AcknowledgedPawn: another (7 %)
+        r = self.assertDash("p pc ack char2")         # Pawn: character (42 %), AcknowledgedPawn: another (7 %)
         self.assertEqual(r.status, "no data")
 
     def test_acknowledged_character_with_a_non_character_pawn_is_dash(self):
         for pawn in ("lp", "bogus"):                    # AcknowledgedPawn stays the character (42 %)
-            r = self.assertDash("p pc 0x388 " + pawn)
+            r = self.assertDash("p pc pawn " + pawn)
             self.assertEqual(r.status, "no data", pawn)
 
     def test_misaligned_pointer_is_rejected(self):
-        self.game.cmd("i pc 0x388 12345")                # low half of the pawn pointer: odd address
+        self.game.cmd("i pc pawn 12345")                # low half of the pawn pointer: odd address
         r = self.poll()
         self.assertEqual((r.status, r.percent), ("no data", None))
 
     def test_local_players_num_zero(self):
         self.poll()
-        self.game.cmd("i gi 0x40 0")
+        self.game.cmd("i gi local_players_num 0")
         r = self.poll()
         self.assertEqual((r.status, r.percent), ("not in world", None))
         self.assertEqual(self.meter.reads, 7)            # stops at the TArray: Data[0] is never read
-        self.game.cmd("i gi 0x40 -1")
+        self.game.cmd("i gi local_players_num -1")
         self.assertIsNone(self.poll().percent)
 
     def test_local_players_data_null(self):
-        self.game.cmd("p gi 0x38 0")
+        self.game.cmd("p gi local_players 0")
         self.assertEqual(self.poll().status, "not in world")
 
     def test_no_pawn(self):
-        self.game.cmd("p pc 0x388 0")
-        self.game.cmd("p pc 0x3f0 0")
+        self.game.cmd("p pc pawn 0")
+        self.game.cmd("p pc ack 0")
         self.assertEqual((self.poll().status, self.poll().percent), ("not in world", None))
 
     def test_null_component(self):
-        self.game.cmd("p char 0xe88 0")
+        self.game.cmd("p char character_threat 0")
         self.assertIsNone(self.poll().percent)
 
     def assertDash(self, *cmds):
@@ -206,37 +226,37 @@ class Route(GameTest):
         return r
 
     def test_witness_component_class(self):
-        self.assertEqual(self.assertDash("p char 0xe88 bogus").status, "no data")
+        self.assertEqual(self.assertDash("p char character_threat bogus").status, "no data")
 
     def test_witness_world_class(self):
-        self.assertDash("p world 0x10 c_bogus")
+        self.assertDash("p world class c_bogus")
 
     def test_witness_game_instance_class(self):
-        self.assertDash("p gi 0x10 c_bogus")
+        self.assertDash("p gi class c_bogus")
 
     def test_witness_local_player_class(self):
-        self.assertDash("p lp 0x10 c_bogus")
+        self.assertDash("p lp class c_bogus")
 
     def test_witness_controller_class(self):
-        self.assertDash("p pc 0x10 c_lp")
+        self.assertDash("p pc class c_lp")
 
     def test_witness_pawn_not_a_player_character(self):
-        self.assertDash("p pc 0x388 lp", "p pc 0x3f0 lp")
+        self.assertDash("p pc pawn lp", "p pc ack lp")
 
     def test_witness_pawn_character_without_player_character(self):
-        self.assertDash("p char 0x10 c_char")           # ADuneCharacter but not ADunePlayerCharacter
+        self.assertDash("p char class c_char")           # ADuneCharacter but not ADunePlayerCharacter
 
     def test_witness_vehicle_component_class(self):
-        self.assertDash("p pc 0x388 veh", "p veh 0xe08 bogus")
+        self.assertDash("p pc pawn veh", "p veh vehicle_threat bogus")
 
     def test_witness_chain_depth_is_four(self):
         # BP_Bike(0) -> Wheeled(1) -> c_bogus(2) -> c_world(3) -> ADuneVehicle(4): accepted
-        for c in ("p c_wheeled 0x40 c_bogus", "p c_bogus 0x40 c_world", "p c_world 0x40 c_veh", "p pc 0x388 veh"):
+        for c in ("p c_wheeled super c_bogus", "p c_bogus super c_world", "p c_world super c_veh", "p pc pawn veh"):
             self.game.cmd(c)
         self.assertEqual(self.poll().percent, 80)
         # one more level (c_world -> c_lp -> ADuneVehicle = depth 5): refused, while AcknowledgedPawn is still
         # the character with a valid 42 %
-        self.assertDash("p c_world 0x40 c_lp", "p c_lp 0x40 c_veh")
+        self.assertDash("p c_world super c_lp", "p c_lp super c_veh")
 
     def test_values_outside_the_domain_show_dash(self):
         for blob, thr, why in (("nan", "100", "no value"), ("-1", "100", "no value"), ("inf", "100", "no value"),
@@ -296,7 +316,7 @@ class Route(GameTest):
     def test_read_only(self):
         before = dehulud.Reader(self.game.pid).read(self.game.obj["char_comp"], 0x400)
         self.poll(5)
-        self.game.cmd("p pc 0x388 veh")
+        self.game.cmd("p pc pawn veh")
         self.poll(5)
         self.assertEqual(dehulud.Reader(self.game.pid).read(self.game.obj["char_comp"], 0x400), before)
 
@@ -373,6 +393,16 @@ class ImageReplacedBuild26333948(ImageReplaced):
 class RouteBuild26333948(Route):
     """Every route case again on build 26333948's layout."""
     extra = ("--build", "26333948")
+
+
+class ImageReplacedBuild26548928(ImageReplaced):
+    """The same image checks on build 26548928's layout."""
+    extra = ("--fixed", "--build", "26548928")
+
+
+class RouteBuild26548928(Route):
+    """Every route case on build 26548928's independently defined layout."""
+    extra = ("--build", "26548928")
 
 
 class Quoting(unittest.TestCase):

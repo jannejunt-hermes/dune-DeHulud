@@ -13,8 +13,10 @@ with open(os.path.join(HERE, "damage_scenarios.json")) as fixture:
 
 
 class DamageScenarios(unittest.TestCase):
+    build = "26333948"
+
     def run_scenario(self, scenario):
-        game = FakeGame("--build", "26333948", "--damage")
+        game = FakeGame("--build", self.build, "--damage")
         self.addCleanup(game.close)
         reader = LoggedReader(dehulud.Reader(game.pid))
         class AttachmentReader:
@@ -64,3 +66,7 @@ def scenario_test(scenario):
 
 for scenario in SCENARIOS:
     setattr(DamageScenarios, "test_" + scenario["name"], scenario_test(scenario))
+
+
+class DamageScenarios26548928(DamageScenarios):
+    build = "26548928"

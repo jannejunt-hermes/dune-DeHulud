@@ -15,7 +15,7 @@ and then obeys stdin lines:
   exit                       exit (status 0)
 Each other command is answered with "ok". Only this process's own memory is ever written.
 
-The constants below are typed in independently of dehulud.py (from the static analysis of builds 26333948,
+The constants below are typed in independently of dehulud.py (from the static analysis of builds 26548928, 26333948,
 26224975 and 26083551), so a wrong offset in dehulud.py cannot be hidden by the fake following it. --build picks
 the image layout (default 26083551); the member offsets are the same in all builds.
 """
@@ -27,6 +27,15 @@ import struct
 import sys
 
 IMAGES = {   # build: (PE SizeOfImage, PE TimeDateStamp, GWorld slot RVA, class slot RVAs)
+    "26548928": (217268224, 1794246991, 0xC252308,
+                 {"world": 0xC251CE0,
+                  "gi": 0xC220940,
+                  "lp": 0xC2304D0,
+                  "pc": 0xC23DE60,
+                  "char": 0xBEE87F0,
+                  "pchar": 0xBEF1DF0,
+                  "veh": 0xBF667C8,
+                  "comp": 0xBF5B758}),
     "26333948": (220024832, 1793384724, 0xC4D3528,
                  {"world": 0xC4D2F00,
                   "gi": 0xC4A1BC0,
@@ -62,6 +71,9 @@ WORLD_GI, GI_LP, LP_PC = 0x3C8, 0x38, 0x30          # OwningGameInstance, LocalP
 PC_PAWN, PC_ACK = 0x388, 0x3F0                      # Pawn, AcknowledgedPawn
 CHAR_COMP, VEH_COMP = 0xE88, 0xE08                  # m_SandwormThreatSourceComponent (character, vehicle)
 BLOB, THRESHOLD = 0x334, 0x348                      # m_CurrentThreatBlobValue, m_CurrentSandwormAttackThreshold
+MEMBERS = {"class": CLASS, "super": SUPER, "world_gi": WORLD_GI, "local_players": GI_LP,
+           "local_players_num": GI_LP + 8, "controller": LP_PC, "pawn": PC_PAWN, "ack": PC_ACK,
+           "character_threat": CHAR_COMP, "vehicle_threat": VEH_COMP, "blob": BLOB, "threshold": THRESHOLD}
 FIXED_IMAGE, FIXED_ARENA = 0x3000000000, 0x4000000000  # --fixed addresses (far below the usual mmap area)
 
 
@@ -83,7 +95,7 @@ def region(size, at=None):
 def main(argv):
     # Optional synthetic damage arena; existing threat addresses and commands stay unchanged.
     from damage_model import DamageModel
-    bound_damage = "--damage" in argv and BUILD == "26333948"
+    bound_damage = "--damage" in argv and BUILD in ("26333948", "26548928")
     damage = DamageModel() if "--damage" in argv and not bound_damage else None
     stamp = int(argv[argv.index("--timestamp") + 1]) if "--timestamp" in argv else TIMESTAMP
     fixed = "--fixed" in argv
@@ -164,7 +176,7 @@ def main(argv):
 
     if bound_damage:
         from damage_build import BoundDamageModel
-        damage = BoundDamageModel(base, obj, put, read_external, remap_image)
+        damage = BoundDamageModel(base, obj, put, read_external, remap_image, build=BUILD)
 
     if damage is not None:
         damage.worm_ranges = [(obj[name] + field, obj[name] + field + 4)
@@ -197,7 +209,8 @@ def main(argv):
             os.execv(sys.executable, [sys.executable, "-B", os.path.abspath(__file__), argv[0], "--timestamp", cmd[1],
                                       "--build", BUILD] + (["--fixed"] if fixed else []) +
                                       (["--damage"] if damage is not None else []))
-        op, where, off, value = cmd[0], obj[cmd[1]], int(cmd[2], 0), cmd[3]
+        off = MEMBERS[cmd[2]] if cmd[2] in MEMBERS else int(cmd[2], 0)
+        op, where, value = cmd[0], obj[cmd[1]], cmd[3]
         if op == "f":
             put(where + off, "<f", float(value))
         elif op == "i":

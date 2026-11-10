@@ -38,34 +38,64 @@ pub struct Layout {
     pub reject_flags: u32,
 }
 
-pub static DAMAGE_BUILDS: &[((u32, u32), Layout)] = &[(
-    (1793384724, 220024832),
-    Layout {
-        attribute_set: 0x1400,      // ADuneCharacter.m_DuneCharacterAttributeSet
-        health: 0x98,               // UDuneCharacterAttributeSet.CurrentHealth
-        maximum: 0xC0,              // UDuneCharacterAttributeSet.MaxHealth
-        power: 0x320,               // UDuneCharacterAttributeSet.CurrentPower
-        payload: 0x18,              // FglGameplayAttributeData.CurrentValuePtr
-        current: 0xC,               // FGameplayAttributeData.CurrentValue
-        cls_attributes: 0xC146A88,  // UDuneCharacterAttributeSet class slot RVA
-        cls_controller: 0xC175948,  // ADunePlayerController class slot RVA
-        coordinator: 0x1048,        // ADunePlayerController.m_InventoryCoordinator
-        owner: 0x268,               // UInventoryCoordinator.m_OwnerCharacter
-        cls_coordinator: 0xC1CD1D8, // UInventoryCoordinator class slot RVA
-        aim: 0x1E58,                // ADunePlayerCharacter.m_CachedAimTarget
-        soft_lock: 0x1D80,          // ADunePlayerCharacter.m_SoftLockTarget
-        weak_index: 0,              // FWeakObjectPtr.ObjectIndex
-        weak_serial: 4,             // FWeakObjectPtr.ObjectSerialNumber
-        chunks: 0xC337DC0,          // GUObjectArray.ObjObjects.Objects
-        count: 0xC337DD4,           // GUObjectArray.ObjObjects.NumElements
-        shift: 16,                  // FChunkedFixedUObjectArray chunk index shift
-        stride: 24,                 // FUObjectItem stride
-        item_object: 0,             // FUObjectItem.Object
-        item_flags: 8,              // FUObjectItem.Flags
-        item_serial: 16,            // FUObjectItem.SerialNumber
-        reject_flags: 0x30200000,   // FUObjectItem.Flags weak reject mask
-    },
-)];
+pub static DAMAGE_BUILDS: &[((u32, u32), Layout)] = &[
+    (
+        (1794246991, 217268224),
+        Layout {
+            attribute_set: 0x1410,      // ADuneCharacter.m_DuneCharacterAttributeSet
+            health: 0x98,               // UDuneCharacterAttributeSet.CurrentHealth
+            maximum: 0xC0,              // UDuneCharacterAttributeSet.MaxHealth
+            power: 0x320,               // UDuneCharacterAttributeSet.CurrentPower
+            payload: 0x18,              // FglGameplayAttributeData.CurrentValuePtr
+            current: 0xC,               // FGameplayAttributeData.CurrentValue
+            cls_attributes: 0xBEC4CE0,  // UDuneCharacterAttributeSet class slot RVA
+            cls_controller: 0xBEF4450,  // ADunePlayerController class slot RVA
+            coordinator: 0x1048,        // ADunePlayerController.m_InventoryCoordinator
+            owner: 0x268,               // UInventoryCoordinator.m_OwnerCharacter
+            cls_coordinator: 0xBF4BDF8, // UInventoryCoordinator class slot RVA
+            aim: 0x1E68,                // ADunePlayerCharacter.m_CachedAimTarget
+            soft_lock: 0x1D90,          // ADunePlayerCharacter.m_SoftLockTarget
+            weak_index: 0,              // FWeakObjectPtr.ObjectIndex
+            weak_serial: 4,             // FWeakObjectPtr.ObjectSerialNumber
+            chunks: 0xC0B6B30,          // GUObjectArray.ObjObjects.Objects
+            count: 0xC0B6B44,           // GUObjectArray.ObjObjects.NumElements
+            shift: 16,                  // FChunkedFixedUObjectArray chunk index shift
+            stride: 24,                 // FUObjectItem stride
+            item_object: 0,             // FUObjectItem.Object
+            item_flags: 8,              // FUObjectItem.Flags
+            item_serial: 16,            // FUObjectItem.SerialNumber
+            reject_flags: 0x30200000,   // FUObjectItem.Flags weak reject mask
+        },
+    ),
+    (
+        (1793384724, 220024832),
+        Layout {
+            attribute_set: 0x1400,      // ADuneCharacter.m_DuneCharacterAttributeSet
+            health: 0x98,               // UDuneCharacterAttributeSet.CurrentHealth
+            maximum: 0xC0,              // UDuneCharacterAttributeSet.MaxHealth
+            power: 0x320,               // UDuneCharacterAttributeSet.CurrentPower
+            payload: 0x18,              // FglGameplayAttributeData.CurrentValuePtr
+            current: 0xC,               // FGameplayAttributeData.CurrentValue
+            cls_attributes: 0xC146A88,  // UDuneCharacterAttributeSet class slot RVA
+            cls_controller: 0xC175948,  // ADunePlayerController class slot RVA
+            coordinator: 0x1048,        // ADunePlayerController.m_InventoryCoordinator
+            owner: 0x268,               // UInventoryCoordinator.m_OwnerCharacter
+            cls_coordinator: 0xC1CD1D8, // UInventoryCoordinator class slot RVA
+            aim: 0x1E58,                // ADunePlayerCharacter.m_CachedAimTarget
+            soft_lock: 0x1D80,          // ADunePlayerCharacter.m_SoftLockTarget
+            weak_index: 0,              // FWeakObjectPtr.ObjectIndex
+            weak_serial: 4,             // FWeakObjectPtr.ObjectSerialNumber
+            chunks: 0xC337DC0,          // GUObjectArray.ObjObjects.Objects
+            count: 0xC337DD4,           // GUObjectArray.ObjObjects.NumElements
+            shift: 16,                  // FChunkedFixedUObjectArray chunk index shift
+            stride: 24,                 // FUObjectItem stride
+            item_object: 0,             // FUObjectItem.Object
+            item_flags: 8,              // FUObjectItem.Flags
+            item_serial: 16,            // FUObjectItem.SerialNumber
+            reject_flags: 0x30200000,   // FUObjectItem.Flags weak reject mask
+        },
+    ),
+];
 
 /// Damage offsets for an identified entry of the shared builds table, or None.
 pub fn layout(build: &Build) -> Option<&'static Layout> {
@@ -409,7 +439,7 @@ mod tests {
 
     #[test]
     fn damage_keys_are_supported_and_older_builds_read_no_damage() {
-        assert_eq!(DAMAGE_BUILDS.len(), 1);
+        assert_eq!(DAMAGE_BUILDS.len(), 2);
         for (key, _) in DAMAGE_BUILDS {
             assert!(crate::meter::find_build(*key).is_some());
         }

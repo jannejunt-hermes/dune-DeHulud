@@ -12,7 +12,7 @@ from support import FakeGame, FakeSource
 
 class DamageBuilds(unittest.TestCase):
     def test_damage_keys_are_supported_and_plain_table_has_no_damage(self):
-        self.assertEqual(set(dehulud.DAMAGE_BUILDS), {(1793384724, 220024832)})
+        self.assertEqual(list(dehulud.DAMAGE_BUILDS), [(1794246991, 217268224), (1793384724, 220024832)])
         self.assertLessEqual(set(dehulud.DAMAGE_BUILDS), set(dehulud.BUILDS))
         self.assertTrue(all("damage" not in build for build in dehulud.BUILDS.values()))
 
