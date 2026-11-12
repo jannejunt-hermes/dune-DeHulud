@@ -26,9 +26,9 @@ class Build(GameTest):
         self.assertEqual(self.meter.game[2]["build"], "26083551")
 
     def test_builds_table_identity(self):
-        self.assertEqual(list(dehulud.BUILDS), [(1794246991, 217268224), (1793384724, 220024832),
+        self.assertEqual(list(dehulud.BUILDS), [(1794396660, 217272320), (1794246991, 217268224), (1793384724, 220024832),
                                              (1793030166, 219996160), (1792504044, 220008448)])
-        self.assertEqual([b["build"] for b in dehulud.BUILDS.values()], ["26548928", "26333948", "26224975", "26083551"])
+        self.assertEqual([b["build"] for b in dehulud.BUILDS.values()], ["26592269", "26548928", "26333948", "26224975", "26083551"])
 
 
 class BuildCurrent(GameTest):
@@ -68,6 +68,17 @@ class Build26333948(GameTest):
                 self.assertNotEqual(dehulud.BUILDS[ident][key], new[key], key)
         self.poll()
         self.assertIs(self.meter.game[2], new)
+
+
+class Build26592269(GameTest):
+    extra = ("--build", "26592269")
+
+    def test_build_26592269_is_recognised(self):
+        self.assertEqual((self.game.build, self.game.timestamp, self.game.size), ("26592269", 1794396660, 217272320))
+        r = self.poll()
+        self.assertEqual((r.status, r.percent), ("on foot", 42))
+        self.assertEqual(self.meter.game[2]["build"], "26592269")
+        self.assertEqual(self.meter.reads, 1 + 8 + 21)
 
 
 class Build26548928(GameTest):
@@ -403,6 +414,16 @@ class ImageReplacedBuild26548928(ImageReplaced):
 class RouteBuild26548928(Route):
     """Every route case on build 26548928's independently defined layout."""
     extra = ("--build", "26548928")
+
+
+class ImageReplacedBuild26592269(ImageReplaced):
+    """The same image checks on build 26592269's layout."""
+    extra = ("--fixed", "--build", "26592269")
+
+
+class RouteBuild26592269(Route):
+    """Every route case on build 26592269's independently defined layout."""
+    extra = ("--build", "26592269")
 
 
 class Quoting(unittest.TestCase):

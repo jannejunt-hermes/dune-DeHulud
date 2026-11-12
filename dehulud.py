@@ -39,6 +39,7 @@ HEADER = 0x400         # the PE header is identified from the first 0x400 bytes 
 MENU_HINT = "right-click"  # window hint: the full message is in the right-click menu (and on stderr)
 
 # Builds table. Key = (PE TimeDateStamp, SizeOfImage) as read from the game's mapped PE header.
+# Build 26592269: pe_timestamp 1794396660, size_of_image 217272320 (executable 212208704 bytes).
 # Build 26548928: pe_timestamp 1794246991, size_of_image 217268224 (executable 212210240 bytes).
 # Build 26333948: pe_timestamp 1793384724, size_of_image 220024832 (executable 214913088 bytes).
 # Build 26224975: pe_timestamp 1793030166, size_of_image 219996160 (executable 214886832 bytes).
@@ -46,6 +47,31 @@ MENU_HINT = "right-click"  # window hint: the full message is in the right-click
 # Offsets come from static analysis of each build's executable; each is commented with the game member it
 # reads. "rva" values are relative to the image base; the rest are member offsets (the same in all builds).
 BUILDS = {
+    (1794396660, 217272320): {
+        "build": "26592269",
+        "gworld": 0xC2521F8,                     # GWorld slot RVA (holds the UWorld*)
+        "cls_world": 0xC251BD0,                  # UWorld class slot RVA (holds the UClass*)
+        "cls_game_instance": 0xC220850,          # UGameInstance class slot RVA
+        "cls_local_player": 0xC2303D0,           # ULocalPlayer class slot RVA
+        "cls_player_controller": 0xC23DD60,      # APlayerController class slot RVA
+        "cls_dune_character": 0xBEE87E0,         # ADuneCharacter class slot RVA
+        "cls_dune_player_character": 0xBEF1DE0,  # ADunePlayerCharacter class slot RVA
+        "cls_dune_vehicle": 0xBF667B8,           # ADuneVehicle class slot RVA
+        "cls_threat_component": 0xBF5B748,       # USandwormThreatSourceComponent class slot RVA
+        "class_private": 0x10,                   # UObject.ClassPrivate
+        "super_struct": 0x40,                    # UStruct.SuperStruct
+        "world_game_instance": 0x3C8,            # UWorld.OwningGameInstance
+        "local_players": 0x38,                   # UGameInstance.LocalPlayers (TArray)
+        "array_data": 0x0,                       # TArray.Data (element stride 8)
+        "array_num": 0x8,                        # TArray.Num (i32)
+        "player_controller": 0x30,               # ULocalPlayer.PlayerController
+        "pawn": 0x388,                           # AController.Pawn (the possessed pawn: decides the route)
+        "acknowledged_pawn": 0x3F0,              # APlayerController.AcknowledgedPawn (on foot: must equal Pawn)
+        "character_threat": 0xE88,               # ADuneCharacter.m_SandwormThreatSourceComponent
+        "vehicle_threat": 0xE08,                 # ADuneVehicle.m_SandwormThreatSourceComponent
+        "threat_blob": 0x334,                    # m_CurrentThreatBlobValue (f32)
+        "threat_threshold": 0x348,               # m_CurrentSandwormAttackThreshold (f32)
+    },
     (1794246991, 217268224): {
         "build": "26548928",
         "gworld": 0xC252308,                     # GWorld slot RVA (holds the UWorld*)

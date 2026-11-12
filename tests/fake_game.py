@@ -15,7 +15,7 @@ and then obeys stdin lines:
   exit                       exit (status 0)
 Each other command is answered with "ok". Only this process's own memory is ever written.
 
-The constants below are typed in independently of dehulud.py (from the static analysis of builds 26548928, 26333948,
+The constants below are typed in independently of dehulud.py (from the static analysis of builds 26592269, 26548928, 26333948,
 26224975 and 26083551), so a wrong offset in dehulud.py cannot be hidden by the fake following it. --build picks
 the image layout (default 26083551); the member offsets are the same in all builds.
 """
@@ -27,6 +27,15 @@ import struct
 import sys
 
 IMAGES = {   # build: (PE SizeOfImage, PE TimeDateStamp, GWorld slot RVA, class slot RVAs)
+    "26592269": (217272320, 1794396660, 0xC2521F8,
+                 {"world": 0xC251BD0,
+                  "gi": 0xC220850,
+                  "lp": 0xC2303D0,
+                  "pc": 0xC23DD60,
+                  "char": 0xBEE87E0,
+                  "pchar": 0xBEF1DE0,
+                  "veh": 0xBF667B8,
+                  "comp": 0xBF5B748}),
     "26548928": (217268224, 1794246991, 0xC252308,
                  {"world": 0xC251CE0,
                   "gi": 0xC220940,
@@ -95,7 +104,7 @@ def region(size, at=None):
 def main(argv):
     # Optional synthetic damage arena; existing threat addresses and commands stay unchanged.
     from damage_model import DamageModel
-    bound_damage = "--damage" in argv and BUILD in ("26333948", "26548928")
+    bound_damage = "--damage" in argv and BUILD in ("26333948", "26548928", "26592269")
     damage = DamageModel() if "--damage" in argv and not bound_damage else None
     stamp = int(argv[argv.index("--timestamp") + 1]) if "--timestamp" in argv else TIMESTAMP
     fixed = "--fixed" in argv

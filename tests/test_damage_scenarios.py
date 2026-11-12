@@ -70,3 +70,7 @@ for scenario in SCENARIOS:
 
 class DamageScenarios26548928(DamageScenarios):
     build = "26548928"
+
+
+class DamageScenarios26592269(DamageScenarios):
+    build = "26592269"

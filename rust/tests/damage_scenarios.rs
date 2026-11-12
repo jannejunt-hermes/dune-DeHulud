@@ -134,6 +134,31 @@ fn scenario_build(name: &str, build: &str) {
 
 #[cfg(feature = "test-source")]
 #[test]
+fn build_26592269_damage_routes() {
+    for name in [
+        "steady_hits",
+        "killing_blow_role_change",
+        "heal_mixed_with_hit",
+        "target_swap",
+        "serial_reuse",
+        "vehicle_target",
+        "read_failure",
+        "world_change",
+        "image_change",
+        "poll_gap_boundary",
+        "maximum_change",
+        "own_death_respawn",
+        "worm_off",
+        "taken_off",
+        "dealt_off",
+        "all_off",
+    ] {
+        scenario_build(name, "26592269");
+    }
+}
+
+#[cfg(feature = "test-source")]
+#[test]
 fn build_26548928_damage_routes() {
     for name in [
         "steady_hits",

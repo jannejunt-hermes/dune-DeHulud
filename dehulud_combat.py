@@ -58,6 +58,31 @@ TEXT_NO_WORM = "dehulud-combat: text mode shows only the worm meter; drop --no-w
 
 # Damage routes by (PE TimeDateStamp, SizeOfImage); absent builds have no damage route.
 DAMAGE_BUILDS = {
+    (1794396660, 217272320): {
+        "attribute_set": 0x1410,       # ADuneCharacter.m_DuneCharacterAttributeSet
+        "health": 0x98,                # UDuneCharacterAttributeSet.CurrentHealth
+        "maximum": 0xC0,               # UDuneCharacterAttributeSet.MaxHealth
+        "power": 0x320,                # UDuneCharacterAttributeSet.CurrentPower
+        "payload": 0x18,               # FglGameplayAttributeData.CurrentValuePtr
+        "current": 0xC,                # FGameplayAttributeData.CurrentValue
+        "cls_attributes": 0xBEC4CE0,   # UDuneCharacterAttributeSet class slot RVA
+        "cls_controller": 0xBEF4440,   # ADunePlayerController class slot RVA
+        "coordinator": 0x1048,         # ADunePlayerController.m_InventoryCoordinator
+        "owner": 0x268,                # UInventoryCoordinator.m_OwnerCharacter
+        "cls_coordinator": 0xBF4BDE8,  # UInventoryCoordinator class slot RVA
+        "aim": 0x1E68,                 # ADunePlayerCharacter.m_CachedAimTarget
+        "soft_lock": 0x1D90,           # ADunePlayerCharacter.m_SoftLockTarget
+        "weak_index": 0x0,               # FWeakObjectPtr.ObjectIndex
+        "weak_serial": 0x4,              # FWeakObjectPtr.ObjectSerialNumber
+        "chunks": 0xC0B6AB0,           # GUObjectArray.ObjObjects.Objects
+        "count": 0xC0B6AC4,            # GUObjectArray.ObjObjects.NumElements
+        "shift": 0x10,                   # FChunkedFixedUObjectArray chunk index shift
+        "stride": 0x18,                  # FUObjectItem stride
+        "item_object": 0x0,              # FUObjectItem.Object
+        "item_flags": 0x8,               # FUObjectItem.Flags
+        "item_serial": 0x10,             # FUObjectItem.SerialNumber
+        "reject_flags": 0x30200000,    # FUObjectItem.Flags weak reject mask
+    },
     (1794246991, 217268224): {
         "attribute_set": 0x1410,       # ADuneCharacter.m_DuneCharacterAttributeSet
         "health": 0x98,                # UDuneCharacterAttributeSet.CurrentHealth

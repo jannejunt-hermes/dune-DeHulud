@@ -53,12 +53,40 @@ pub struct Build {
     pub threat_threshold: u64,
 }
 
-/// Builds table. Build 26548928: pe_timestamp 1794246991, size_of_image 217268224 (executable 212210240 bytes).
+/// Builds table. Build 26592269: pe_timestamp 1794396660, size_of_image 217272320 (executable 212208704 bytes).
+/// Build 26548928: pe_timestamp 1794246991, size_of_image 217268224 (executable 212210240 bytes).
 /// Build 26333948: pe_timestamp 1793384724, size_of_image 220024832 (executable 214913088 bytes).
 /// Build 26224975: pe_timestamp 1793030166, size_of_image 219996160 (executable 214886832
 /// bytes). Build 26083551: pe_timestamp 1792504044, size_of_image 220008448 (executable 214900656 bytes).
 /// The member offsets are the same in all builds; the slot RVAs moved.
 pub static BUILDS: &[Build] = &[
+    Build {
+        build: "26592269",
+        pe_timestamp: 1794396660,
+        size_of_image: 217272320,
+        gworld: 0xC2521F8,                    // GWorld slot RVA (holds the UWorld*)
+        cls_world: 0xC251BD0,                 // UWorld class slot RVA (holds the UClass*)
+        cls_game_instance: 0xC220850,         // UGameInstance class slot RVA
+        cls_local_player: 0xC2303D0,          // ULocalPlayer class slot RVA
+        cls_player_controller: 0xC23DD60,     // APlayerController class slot RVA
+        cls_dune_character: 0xBEE87E0,        // ADuneCharacter class slot RVA
+        cls_dune_player_character: 0xBEF1DE0, // ADunePlayerCharacter class slot RVA
+        cls_dune_vehicle: 0xBF667B8,          // ADuneVehicle class slot RVA
+        cls_threat_component: 0xBF5B748,      // USandwormThreatSourceComponent class slot RVA
+        class_private: 0x10,                  // UObject.ClassPrivate
+        super_struct: 0x40,                   // UStruct.SuperStruct
+        world_game_instance: 0x3C8,           // UWorld.OwningGameInstance
+        local_players: 0x38,                  // UGameInstance.LocalPlayers (TArray)
+        array_data: 0x0,                      // TArray.Data (element stride 8)
+        array_num: 0x8,                       // TArray.Num (i32)
+        player_controller: 0x30,              // ULocalPlayer.PlayerController
+        pawn: 0x388,                          // AController.Pawn (the possessed pawn: decides the route)
+        acknowledged_pawn: 0x3F0,             // APlayerController.AcknowledgedPawn (on foot: must equal Pawn)
+        character_threat: 0xE88,              // ADuneCharacter.m_SandwormThreatSourceComponent
+        vehicle_threat: 0xE08,                // ADuneVehicle.m_SandwormThreatSourceComponent
+        threat_blob: 0x334,                   // m_CurrentThreatBlobValue (f32)
+        threat_threshold: 0x348,              // m_CurrentSandwormAttackThreshold (f32)
+    },
     Build {
         build: "26548928",
         pe_timestamp: 1794246991,
@@ -1123,10 +1151,16 @@ pub(crate) mod tests {
         let keys: Vec<(u32, u32)> = BUILDS.iter().map(|b| (b.pe_timestamp, b.size_of_image)).collect();
         assert_eq!(
             keys,
-            vec![(1794246991, 217268224), (1793384724, 220024832), (1793030166, 219996160), (1792504044, 220008448)]
+            vec![
+                (1794396660, 217272320),
+                (1794246991, 217268224),
+                (1793384724, 220024832),
+                (1793030166, 219996160),
+                (1792504044, 220008448)
+            ]
         );
         let names: Vec<&str> = BUILDS.iter().map(|b| b.build).collect();
-        assert_eq!(names, vec!["26548928", "26333948", "26224975", "26083551"]);
+        assert_eq!(names, vec!["26592269", "26548928", "26333948", "26224975", "26083551"]);
     }
 
     #[test]
