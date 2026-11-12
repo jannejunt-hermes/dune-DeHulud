@@ -13,7 +13,7 @@ import dehulud_combat as m
 
 class OverlayReadLog(unittest.TestCase):
     def test_no_shape_window_reads_only_worm_and_saves_switches(self):
-        game = FakeGame("--build", "26333948", "--damage")
+        game = FakeGame("--build", "26592269", "--damage")
         self.addCleanup(game.close)
         reader = LoggedReader(m.Reader(game.pid))
 
@@ -60,7 +60,7 @@ class OverlayReadLog(unittest.TestCase):
                 self.assertTrue(m.load_config(cfg)["damage_dealt"])
 
     def test_available_overlay_keeps_both_damage_routes(self):
-        game = FakeGame("--build", "26333948", "--damage")
+        game = FakeGame("--build", "26592269", "--damage")
         self.addCleanup(game.close)
         reader = LoggedReader(m.Reader(game.pid))
 

@@ -9,7 +9,7 @@ import dehulud_combat as dehulud
 
 class BoundRouteTests(unittest.TestCase):
     def setUp(self):
-        self.game = FakeGame("--build", "26333948", "--damage")
+        self.game = FakeGame("--build", "26592269", "--damage")
         self.addCleanup(self.game.close)
         self.reader = LoggedReader(dehulud.Reader(self.game.pid))
 
@@ -30,44 +30,44 @@ class BoundRouteTests(unittest.TestCase):
         return False
 
     def controller(self):
-        world = self.pointer(self.game.base + 0xC4D3528)
-        self.assertEqual(self.pointer(world + 0x10),self.pointer(self.game.base + 0xC4D2F00))
+        world = self.pointer(self.game.base + 0xC2521F8)
+        self.assertEqual(self.pointer(world + 0x10),self.pointer(self.game.base + 0xC251BD0))
         gi = self.pointer(world + 0x3C8)
-        self.assertTrue(self.class_is(gi,self.pointer(self.game.base + 0xC4A1BC0)))
+        self.assertTrue(self.class_is(gi,self.pointer(self.game.base + 0xC220850)))
         self.assertGreater(self.value(gi + 0x38 + 8,"i"),0)
         lp = self.pointer(self.pointer(gi + 0x38))
-        self.assertTrue(self.class_is(lp,self.pointer(self.game.base + 0xC4B1730)))
+        self.assertTrue(self.class_is(lp,self.pointer(self.game.base + 0xC2303D0)))
         pc = self.pointer(lp + 0x30)
-        self.assertTrue(self.class_is(pc,self.pointer(self.game.base + 0xC4BF0E8)))
+        self.assertTrue(self.class_is(pc,self.pointer(self.game.base + 0xC23DD60)))
         return pc
 
     def own(self):
         pc = self.controller()
         pawn = self.pointer(pc + 0x388)
-        if self.class_is(pawn,self.pointer(self.game.base + 0xC1E7D88)):
-            self.assertTrue(self.class_is(pc,self.pointer(self.game.base + 0xC175948)))
+        if self.class_is(pawn,self.pointer(self.game.base + 0xBF667B8)):
+            self.assertTrue(self.class_is(pc,self.pointer(self.game.base + 0xBEF4440)))
             inventory = self.pointer(pc + 0x1048)
-            self.assertTrue(self.class_is(inventory,self.pointer(self.game.base + 0xC1CD1D8)))
+            self.assertTrue(self.class_is(inventory,self.pointer(self.game.base + 0xBF4BDE8)))
             pawn = self.pointer(inventory + 0x268)
         else:
             self.assertEqual(pawn,self.pointer(pc + 0x3F0))
-        self.assertTrue(self.class_is(pawn,self.pointer(self.game.base + 0xC16A450)))
-        self.assertTrue(self.class_is(pawn,self.pointer(self.game.base + 0xC1732B0)))
+        self.assertTrue(self.class_is(pawn,self.pointer(self.game.base + 0xBEE87E0)))
+        self.assertTrue(self.class_is(pawn,self.pointer(self.game.base + 0xBEF1DE0)))
         return pawn
 
     def vitals(self, character):
-        attrs = self.pointer(character + 0x1400)
-        self.assertEqual(self.pointer(attrs + 0x10),self.pointer(self.game.base + 0xC146A88))
+        attrs = self.pointer(character + 0x1410)
+        self.assertEqual(self.pointer(attrs + 0x10),self.pointer(self.game.base + 0xBEC4CE0))
         return (self.value(self.pointer(attrs + 0x98 + 0x18),"f"),
                 self.value(attrs + 0xC0 + 0xC,"f"),self.value(attrs + 0x320 + 0xC,"f"))
 
     def target(self):
         own = self.own()
-        index,serial = struct.unpack("<ii",self.reader.read(own + 0x1E58,8))
-        count = self.value(self.game.base + 0xC337DD4,"i")
+        index,serial = struct.unpack("<ii",self.reader.read(own + 0x1E68,8))
+        count = self.value(self.game.base + 0xC0B6AC4,"i")
         if not 0 <= index < count or not serial:
             return None
-        chunks = self.pointer(self.game.base + 0xC337DC0)
+        chunks = self.pointer(self.game.base + 0xC0B6AB0)
         chunk = self.pointer(chunks + (index >> 16) * 8)
         if not chunk:
             return None
@@ -76,7 +76,7 @@ class BoundRouteTests(unittest.TestCase):
         address,flags,actual_serial = struct.unpack_from("<QI4xi",before)
         if not address or flags & 0x30200000 or actual_serial != serial:
             return None
-        if not self.class_is(address,self.pointer(self.game.base + 0xC16A450)):
+        if not self.class_is(address,self.pointer(self.game.base + 0xBEE87E0)):
             return None
         result = self.vitals(address)
         return result if self.reader.read(item,24) == before else None
@@ -85,7 +85,7 @@ class BoundRouteTests(unittest.TestCase):
         return self.game.damage_frame(frame,self.reader)
 
     def test_routes_mutation_and_real_chunk_boundary(self):
-        self.assertEqual(self.game.damage["bound_build"],"26333948")
+        self.assertEqual(self.game.damage["bound_build"],"26592269")
         self.assertEqual(self.vitals(self.own()),(100,100,50))
         self.assertEqual(self.target(),(100,100,50))
         self.frame(vitals={"own":{"health":80,"maximum":120},"enemy2":{"health":35,"shield":9}},
@@ -115,16 +115,16 @@ class BoundRouteTests(unittest.TestCase):
             self.assertEqual(self.target(),(100,100,50) if depth == 4 else None)
 
     def test_real_identity_changes_failure_ranges_and_feature_reads(self):
-        old_world = self.pointer(self.game.base + 0xC4D3528)
+        old_world = self.pointer(self.game.base + 0xC2521F8)
         self.frame(world=2,vitals={"own":{"health":80}})
-        self.assertNotEqual(self.pointer(self.game.base + 0xC4D3528),old_world)
+        self.assertNotEqual(self.pointer(self.game.base + 0xC2521F8),old_world)
         self.assertEqual(self.vitals(self.own()),(80,100,50))
         old_base = self.game.base
         old_ident = self.reader.read(old_base,0x400)
         self.frame(image=2)
         self.assertNotEqual(self.game.base,old_base)
         self.assertNotEqual(self.reader.read(old_base,0x400),old_ident)
-        self.assertEqual(dehulud.pe_identity(self.reader.read(self.game.base,0x400)),(1793384724,220024832))
+        self.assertEqual(dehulud.pe_identity(self.reader.read(self.game.base,0x400)),(1794396660,217272320))
         self.assertEqual(self.vitals(self.own()),(80,100,50))
         self.frame(fail_reads=[["own","health"]])
         with self.assertRaises(OSError):

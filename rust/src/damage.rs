@@ -38,6 +38,8 @@ pub struct Layout {
     pub reject_flags: u32,
 }
 
+/// Current game version only; replace this entry after a game update.
+#[rustfmt::skip]
 pub static DAMAGE_BUILDS: &[((u32, u32), Layout)] = &[
     (
         (1794396660, 217272320),
@@ -64,62 +66,6 @@ pub static DAMAGE_BUILDS: &[((u32, u32), Layout)] = &[
             item_object: 0x0,           // FUObjectItem.Object
             item_flags: 0x8,            // FUObjectItem.Flags
             item_serial: 0x10,          // FUObjectItem.SerialNumber
-            reject_flags: 0x30200000,   // FUObjectItem.Flags weak reject mask
-        },
-    ),
-    (
-        (1794246991, 217268224),
-        Layout {
-            attribute_set: 0x1410,      // ADuneCharacter.m_DuneCharacterAttributeSet
-            health: 0x98,               // UDuneCharacterAttributeSet.CurrentHealth
-            maximum: 0xC0,              // UDuneCharacterAttributeSet.MaxHealth
-            power: 0x320,               // UDuneCharacterAttributeSet.CurrentPower
-            payload: 0x18,              // FglGameplayAttributeData.CurrentValuePtr
-            current: 0xC,               // FGameplayAttributeData.CurrentValue
-            cls_attributes: 0xBEC4CE0,  // UDuneCharacterAttributeSet class slot RVA
-            cls_controller: 0xBEF4450,  // ADunePlayerController class slot RVA
-            coordinator: 0x1048,        // ADunePlayerController.m_InventoryCoordinator
-            owner: 0x268,               // UInventoryCoordinator.m_OwnerCharacter
-            cls_coordinator: 0xBF4BDF8, // UInventoryCoordinator class slot RVA
-            aim: 0x1E68,                // ADunePlayerCharacter.m_CachedAimTarget
-            soft_lock: 0x1D90,          // ADunePlayerCharacter.m_SoftLockTarget
-            weak_index: 0,              // FWeakObjectPtr.ObjectIndex
-            weak_serial: 4,             // FWeakObjectPtr.ObjectSerialNumber
-            chunks: 0xC0B6B30,          // GUObjectArray.ObjObjects.Objects
-            count: 0xC0B6B44,           // GUObjectArray.ObjObjects.NumElements
-            shift: 16,                  // FChunkedFixedUObjectArray chunk index shift
-            stride: 24,                 // FUObjectItem stride
-            item_object: 0,             // FUObjectItem.Object
-            item_flags: 8,              // FUObjectItem.Flags
-            item_serial: 16,            // FUObjectItem.SerialNumber
-            reject_flags: 0x30200000,   // FUObjectItem.Flags weak reject mask
-        },
-    ),
-    (
-        (1793384724, 220024832),
-        Layout {
-            attribute_set: 0x1400,      // ADuneCharacter.m_DuneCharacterAttributeSet
-            health: 0x98,               // UDuneCharacterAttributeSet.CurrentHealth
-            maximum: 0xC0,              // UDuneCharacterAttributeSet.MaxHealth
-            power: 0x320,               // UDuneCharacterAttributeSet.CurrentPower
-            payload: 0x18,              // FglGameplayAttributeData.CurrentValuePtr
-            current: 0xC,               // FGameplayAttributeData.CurrentValue
-            cls_attributes: 0xC146A88,  // UDuneCharacterAttributeSet class slot RVA
-            cls_controller: 0xC175948,  // ADunePlayerController class slot RVA
-            coordinator: 0x1048,        // ADunePlayerController.m_InventoryCoordinator
-            owner: 0x268,               // UInventoryCoordinator.m_OwnerCharacter
-            cls_coordinator: 0xC1CD1D8, // UInventoryCoordinator class slot RVA
-            aim: 0x1E58,                // ADunePlayerCharacter.m_CachedAimTarget
-            soft_lock: 0x1D80,          // ADunePlayerCharacter.m_SoftLockTarget
-            weak_index: 0,              // FWeakObjectPtr.ObjectIndex
-            weak_serial: 4,             // FWeakObjectPtr.ObjectSerialNumber
-            chunks: 0xC337DC0,          // GUObjectArray.ObjObjects.Objects
-            count: 0xC337DD4,           // GUObjectArray.ObjObjects.NumElements
-            shift: 16,                  // FChunkedFixedUObjectArray chunk index shift
-            stride: 24,                 // FUObjectItem stride
-            item_object: 0,             // FUObjectItem.Object
-            item_flags: 8,              // FUObjectItem.Flags
-            item_serial: 16,            // FUObjectItem.SerialNumber
             reject_flags: 0x30200000,   // FUObjectItem.Flags weak reject mask
         },
     ),
@@ -465,18 +411,20 @@ mod tests {
     use crate::procfs::Memory;
     use std::time::Duration;
 
+    static UNKNOWN_BUILD: crate::meter::Build =
+        crate::meter::Build { pe_timestamp: 1700000000, ..crate::meter::BUILDS[0] };
+
     #[test]
-    fn damage_keys_are_supported_and_older_builds_read_no_damage() {
-        assert_eq!(DAMAGE_BUILDS.len(), 3);
+    fn damage_key_is_supported_and_unknown_layout_reads_nothing() {
+        assert_eq!(DAMAGE_BUILDS.len(), 1);
         for (key, _) in DAMAGE_BUILDS {
             assert!(crate::meter::find_build(*key).is_some());
         }
-        for key in [(1793030166, 219996160), (1792504044, 220008448)] {
-            let build = crate::meter::find_build(key).unwrap();
-            assert!(layout(build).is_none());
+        {
+            assert!(layout(&UNKNOWN_BUILD).is_none());
             let mut mem = Bytes::default();
             let mut reader = DamageReader::default();
-            let mut game = Attached { mem: &mut mem, base: 0x100000000, build };
+            let mut game = Attached { mem: &mut mem, base: 0x100000000, build: &UNKNOWN_BUILD };
             assert_eq!(reader.taken(&mut game), None);
             assert_eq!(reader.dealt(&mut game), None);
             assert!(mem.log.is_empty());
@@ -484,7 +432,7 @@ mod tests {
         let world = crate::meter::tests::World::new(crate::meter::tests::TS);
         let mut meter = world.meter(false).with_damage(Box::new(DamageReader::default()));
         use crate::meter::Poll;
-        let reading = meter.poll();
+        let reading = meter.poll_enabled(Features::TEXT);
         assert_eq!((reading.percent, reading.taken, reading.dealt), (Some(42), None, None));
         assert_eq!(meter.reads, 1 + 8 + 21);
     }
@@ -571,16 +519,16 @@ mod tests {
     fn fixture() -> Bytes {
         let mut m = Bytes::default();
         let base = 0x100000000;
-        m.i(base + 0xC337DD4, 4);
-        m.q(base + 0xC337DC0, 0x200000);
+        m.i(base + 0xC0B6AC4, 4);
+        m.q(base + 0xC0B6AB0, 0x200000);
         m.q(0x200000, 0x300000 - 24);
         m.put(0x300000, &[0; 24]);
         m.q(0x300000, 0x400000);
         m.i(0x300010, 7);
-        m.q(base + 0xC16A450, 0x600000);
+        m.q(base + 0xBEE87E0, 0x600000);
         m.q(0x400010, 0x600000);
-        m.q(0x401400, 0x500000);
-        m.q(base + 0xC146A88, 0x700000);
+        m.q(0x401410, 0x500000);
+        m.q(base + 0xBEC4CE0, 0x700000);
         m.q(0x500010, 0x700000);
         m.q(0x5000B0, 0x800000);
         m.f(0x800000, 80.0);
@@ -590,7 +538,7 @@ mod tests {
     }
 
     fn sample(m: &mut Bytes, key: Key) -> Result<Sample, ()> {
-        let build = crate::meter::find_build((1793384724, 220024832)).unwrap();
+        let build = crate::meter::find_build((1794396660, 217272320)).unwrap();
         target(&mut Attached { mem: m, base: 0x100000000, build }, key)
     }
 
@@ -613,7 +561,7 @@ mod tests {
     fn weak_bound_and_class_depth() {
         let mut m = fixture();
         assert_eq!(sample(&mut m, (4, 7)), Err(()));
-        assert_eq!(m.log, [(0x10C337DD4, 4)]);
+        assert_eq!(m.log, [(0x10C0B6AC4, 4)]);
         for depth in [4, 5] {
             let mut cls = 0x600000;
             for i in 0..depth {
@@ -637,7 +585,7 @@ mod tests {
     fn own_fixture() -> Bytes {
         let mut m = fixture();
         let base = 0x100000000;
-        let build = crate::meter::find_build((1793384724, 220024832)).unwrap();
+        let build = crate::meter::find_build((1794396660, 217272320)).unwrap();
         for (slot, cls) in [
             (build.cls_world, 0x610000),
             (build.cls_game_instance, 0x620000),
@@ -670,8 +618,8 @@ mod tests {
         m.q(0xA30030, 0xA40000);
         m.q(0xA40388, 0x400000);
         m.q(0xA403F0, 0x400000);
-        m.q(base + 0xC175948, 0x670000);
-        m.q(base + 0xC1CD1D8, 0x680000);
+        m.q(base + 0xBEF4440, 0x670000);
+        m.q(base + 0xBF4BDE8, 0x680000);
         m.q(0xA41048, 0xA60000);
         m.q(0xA60268, 0x400000);
         m
@@ -681,7 +629,7 @@ mod tests {
     fn own_route_vehicle_world_image_and_old_build() {
         let mut m = own_fixture();
         let base = 0x100000000;
-        let build = crate::meter::find_build((1793384724, 220024832)).unwrap();
+        let build = crate::meter::find_build((1794396660, 217272320)).unwrap();
         let start = Instant::now();
         let mut r = DamageReader::default();
         let poll = |r: &mut DamageReader, m: &mut Bytes| r.taken(&mut Attached { mem: m, base, build });
@@ -703,8 +651,7 @@ mod tests {
         r.prepare(start + Duration::from_millis(750), Features { taken: true, ..Features::NONE }, 2);
         assert_eq!(poll(&mut r, &mut m), Some(None));
         m.log.clear();
-        let old = crate::meter::find_build((1793030166, 219996160)).unwrap();
-        assert_eq!(r.taken(&mut Attached { mem: &mut m, base, build: old }), None);
+        assert_eq!(r.taken(&mut Attached { mem: &mut m, base, build: &UNKNOWN_BUILD }), None);
         assert!(m.log.is_empty());
     }
 
@@ -752,9 +699,9 @@ mod tests {
         bytes.i(base + 0x3C, 0x80);
         bytes.put(base + 0x80, b"PE\0\0");
         bytes.put(base + 0x84, &0x8664u16.to_le_bytes());
-        bytes.i(base + 0x88, 1793384724);
+        bytes.i(base + 0x88, 1794396660);
         bytes.put(base + 0x98, &0x20Bu16.to_le_bytes());
-        bytes.i(base + 0xD0, 220024832);
+        bytes.i(base + 0xD0, 217272320);
         let memory = Rc::new(RefCell::new(bytes));
         let factory = memory.clone();
         let start = Instant::now();
@@ -772,7 +719,7 @@ mod tests {
         clock.set(start + Duration::from_millis(850));
         memory.borrow_mut().f(0x800000, 50.0);
         assert_eq!(meter.poll_enabled(on).taken, Some(Some(10.0)));
-        let gworld = crate::meter::find_build((1793384724, 220024832)).unwrap().gworld;
+        let gworld = crate::meter::find_build((1794396660, 217272320)).unwrap().gworld;
         assert_eq!(memory.borrow().log.iter().filter(|e| **e == (base + gworld, 8)).count(), 3);
     }
 }

@@ -123,7 +123,7 @@ def rust_reads(no_shape):
     control()
     fake = Path(__file__).resolve().parent / "fake_game.py"
     script = "exec " + shlex.join([sys.executable, "-B", str(fake), "DuneSandbox-Win64-Shipping.exe",
-                                   "--build", "26333948", "--damage"]) + " <" + shlex.quote(str(fin)) + " >" + shlex.quote(str(fout))
+                                   "--build", "26592269", "--damage"]) + " <" + shlex.quote(str(fin)) + " >" + shlex.quote(str(fout))
     log = (tmp / "stderr").open("w")
     child = subprocess.Popen([os.environ["DEHULUD_OVERLAY_BIN"], "--launch", "/bin/sh", "-c", script],
                              env=dict(os.environ, DEHULUD_TEST_SOURCE=str(ctl), XDG_CONFIG_HOME=str(tmp / "cfg")),

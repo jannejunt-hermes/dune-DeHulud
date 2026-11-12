@@ -7,31 +7,13 @@ import unittest
 
 import support  # noqa: F401  (the repository on sys.path)
 import dehulud_combat as dehulud
-from support import FakeGame, FakeSource
 
 
 class DamageBuilds(unittest.TestCase):
     def test_damage_keys_are_supported_and_plain_table_has_no_damage(self):
-        self.assertEqual(list(dehulud.DAMAGE_BUILDS), [(1794396660, 217272320), (1794246991, 217268224), (1793384724, 220024832)])
+        self.assertEqual(list(dehulud.DAMAGE_BUILDS), [(1794396660, 217272320)])
         self.assertLessEqual(set(dehulud.DAMAGE_BUILDS), set(dehulud.BUILDS))
         self.assertTrue(all("damage" not in build for build in dehulud.BUILDS.values()))
-
-    def test_older_builds_keep_worm_and_read_no_damage(self):
-        for build in ("26224975", "26083551"):
-            with self.subTest(build=build):
-                game = FakeGame("--build", build)
-                try:
-                    meter = dehulud.Meter(source=FakeSource(game), damage=dehulud.DamageReader())
-                    reading = meter.poll()
-                    self.assertEqual((reading.status, reading.percent, reading.taken, reading.dealt),
-                                     ("on foot", 42, None, None))
-                    self.assertEqual(meter.reads, 1 + 8 + 21)
-                    self.assertIsNone(dehulud.damage_layout(meter.game[2]))
-                    reading = meter.poll()
-                    self.assertEqual((reading.percent, reading.taken, reading.dealt), (42, None, None))
-                    self.assertEqual(meter.reads, 21)
-                finally:
-                    game.close()
 
 
 class History(unittest.TestCase):
@@ -95,16 +77,16 @@ class WeakTargets(unittest.TestCase):
     def setUp(self):
         self.reader = dehulud.DamageReader()
         self.mem = m = Memory()
-        self.game = dehulud.Attached(0x100000000, dehulud.BUILDS[(1793384724, 220024832)], m)
+        self.game = dehulud.Attached(0x100000000, dehulud.BUILDS[(1794396660, 217272320)], m)
         self.item, self.obj, self.attrs = 0x300000, 0x400000, 0x500000
-        m.put(self.game.base + 0xC337DD4, "i", 4)
-        m.put(self.game.base + 0xC337DC0, "Q", 0x200000)
+        m.put(self.game.base + 0xC0B6AC4, "i", 4)
+        m.put(self.game.base + 0xC0B6AB0, "Q", 0x200000)
         m.put(0x200000, "Q", self.item - 24)
         m.put(self.item, "Q I 4x i 4x", self.obj, 0, 7)
-        m.put(self.game.base + 0xC16A450, "Q", 0x600000)
+        m.put(self.game.base + 0xBEE87E0, "Q", 0x600000)
         m.put(self.obj + 0x10, "Q", 0x600000)
-        m.put(self.obj + 0x1400, "Q", self.attrs)
-        m.put(self.game.base + 0xC146A88, "Q", 0x700000)
+        m.put(self.obj + 0x1410, "Q", self.attrs)
+        m.put(self.game.base + 0xBEC4CE0, "Q", 0x700000)
         m.put(self.attrs + 0x10, "Q", 0x700000)
         m.put(self.attrs + 0x98 + 0x18, "Q", 0x800000)
         m.put(0x800000, "f", 80)
@@ -124,7 +106,7 @@ class WeakTargets(unittest.TestCase):
 
     def test_count_bound_stops_before_chunk_read(self):
         self.assertIsNone(self.reader.target(self.game, (4, 7)))
-        self.assertEqual(self.mem.log, [(self.game.base + 0xC337DD4, 4)])
+        self.assertEqual(self.mem.log, [(self.game.base + 0xC0B6AC4, 4)])
 
     def test_float_payload_needs_only_four_byte_alignment(self):
         self.mem.put(self.attrs + 0x98 + 0x18, "Q", 0x800004)
@@ -153,7 +135,7 @@ class TargetRoles(unittest.TestCase):
         values = {}
         observed = []
         r.character = lambda game: (1, 0x100000, "on foot")
-        r.handle = lambda game, address: roles[0 if address == 0x101E58 else 1]
+        r.handle = lambda game, address: roles[0 if address == 0x101E68 else 1]
         def target(game, key):
             observed.append(key)
             return values[key]
@@ -162,7 +144,7 @@ class TargetRoles(unittest.TestCase):
             r.begin(at, {"damage_dealt"}, 1)
             roles[:] = aim, soft
             observed.clear()
-            return r.dealt(dehulud.Attached(0, dehulud.BUILDS[(1793384724, 220024832)], None))
+            return r.dealt(dehulud.Attached(0, dehulud.BUILDS[(1794396660, 217272320)], None))
         a, b = (1, 1), (2, 1)
         values[a] = (100, 100, 50)
         self.assertEqual(poll(0, a, a), ((), ()))
@@ -183,7 +165,7 @@ class TargetRoles(unittest.TestCase):
         r = dehulud.DamageReader()
         roles, seen = [None, None], []
         r.character = lambda game: (1, 0x100000, "on foot")
-        r.handle = lambda game, address: roles[0 if address == 0x101E58 else 1]
+        r.handle = lambda game, address: roles[0 if address == 0x101E68 else 1]
         def target(game, key):
             seen.append(key)
             return (100, 100, 50)
@@ -192,7 +174,7 @@ class TargetRoles(unittest.TestCase):
             r.begin(index * .25, {"damage_dealt"}, 1)
             roles[:] = (index, 1), (99, 1)
             seen.clear()
-            r.dealt(dehulud.Attached(0, dehulud.BUILDS[(1793384724, 220024832)], None))
+            r.dealt(dehulud.Attached(0, dehulud.BUILDS[(1794396660, 217272320)], None))
         self.assertEqual(seen, [(6, 1), (99, 1), (5, 1), (4, 1), (3, 1), (2, 1)])
 
 
@@ -220,8 +202,8 @@ class ReaderRoutes(unittest.TestCase):
         m.put(0xA30030, "Q", 0xA40000)
         m.put(0xA40388, "Q", self.obj)
         m.put(0xA403F0, "Q", self.obj)
-        m.put(self.game.base + 0xC175948, "Q", 0x670000)
-        m.put(self.game.base + 0xC1CD1D8, "Q", 0x680000)
+        m.put(self.game.base + 0xBEF4440, "Q", 0x670000)
+        m.put(self.game.base + 0xBF4BDE8, "Q", 0x680000)
         m.put(0xA41048, "Q", 0xA60000)
         m.put(0xA60268, "Q", self.obj)
 
@@ -245,7 +227,7 @@ class ReaderRoutes(unittest.TestCase):
         m.put(0x800000, "f", 30)
         r.begin(.75, {"damage_taken"}, 2)
         self.assertEqual(r.taken(self.game), ())
-        old = dehulud.Attached(self.game.base, dehulud.BUILDS[(1793030166, 219996160)], m)
+        old = dehulud.Attached(self.game.base, dict(self.game.build), m)
         m.log.clear()
         self.assertIsNone(r.taken(old))
         self.assertEqual(m.log, [])
@@ -255,9 +237,9 @@ class ReaderRoutes(unittest.TestCase):
         m.put(g.base, "1024s", b"")
         m.put(g.base, "2s", b"MZ")
         m.put(g.base + 0x3C, "I", 0x80)
-        m.put(g.base + 0x80, "4sH2xI", b"PE\0\0", 0x8664, 1793384724)
+        m.put(g.base + 0x80, "4sH2xI", b"PE\0\0", 0x8664, 1794396660)
         m.put(g.base + 0x98, "H", 0x20B)
-        m.put(g.base + 0xD0, "I", 220024832)
+        m.put(g.base + 0xD0, "I", 217272320)
         class Source:
             def pids(self): return [123456]
             def uid(self, pid): return os.getuid()

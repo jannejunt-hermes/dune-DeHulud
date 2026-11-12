@@ -173,7 +173,7 @@ impl Source for TestSource {
     fn maps(&self, pid: i32) -> io::Result<String> {
         let c = self.check(pid)?;
         let Some(b) = c.num("base") else { return Ok(String::new()) };
-        let size = c.num("size").unwrap_or(220008448); // the fake game's SizeOfImage
+        let size = c.num("size").unwrap_or(217272320); // the fake game's SizeOfImage
         Ok(format!(
             "55d000000000-55d000021000 r--p 00000000 103:02 77 /usr/bin/wine64-preloader\n\
              {b:x}-{:x} r--p 00000000 103:02 1234 /games/DUNE Awakening/DuneSandbox/Binaries/Win64/DuneSandbox-Win64-Shipping.exe\n\

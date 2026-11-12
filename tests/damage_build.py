@@ -1,4 +1,4 @@
-"""Mapped damage route for build 26333948; independent of application tables."""
+"""Mapped damage route for the current game version; independent of application tables."""
 import ctypes
 import mmap
 import struct
@@ -10,7 +10,7 @@ LAYOUT = {
     "arena_size": 0x800000, "allocation_stride": 0x3000,
     "class": 0x10,                    # UObject.ClassPrivate
     "super": 0x40,                    # UStruct.SuperStruct
-    "attributes": 0x1400,             # ADuneCharacter.m_DuneCharacterAttributeSet
+    "attributes": 0x1410,             # ADuneCharacter.m_DuneCharacterAttributeSet
     "health_pointer": 0x98 + 0x18,    # CurrentHealth + CurrentValuePtr
     "maximum": 0xC0 + 0xC,            # MaxHealth + CurrentValue
     "shield": 0x320 + 0xC,            # CurrentPower + CurrentValue
@@ -18,15 +18,15 @@ LAYOUT = {
     "acknowledged_pawn": 0x3F0,       # APlayerController.AcknowledgedPawn
     "inventory": 0x1048,              # ADunePlayerController.m_InventoryCoordinator
     "inventory_owner": 0x268,         # UInventoryCoordinator.m_OwnerCharacter
-    "aim": 0x1E58,                    # ADunePlayerCharacter.m_CachedAimTarget
-    "soft_lock": 0x1D80,              # ADunePlayerCharacter.m_SoftLockTarget
-    "gworld": 0xC4D3528,              # GWorld
+    "aim": 0x1E68,                    # ADunePlayerCharacter.m_CachedAimTarget
+    "soft_lock": 0x1D90,              # ADunePlayerCharacter.m_SoftLockTarget
+    "gworld": 0xC2521F8,              # GWorld
     "world_gi": 0x3C8,                # UWorld.OwningGameInstance
-    "attribute_class_slot": 0xC146A88, # UDuneCharacterAttributeSet
-    "controller_class_slot": 0xC175948, # ADunePlayerController
-    "inventory_class_slot": 0xC1CD1D8, # UInventoryCoordinator
-    "chunks_slot": 0xC337DC0,         # GUObjectArray.ObjObjects.Objects
-    "count_slot": 0xC337DD4,          # GUObjectArray.ObjObjects.NumElements
+    "attribute_class_slot": 0xBEC4CE0, # UDuneCharacterAttributeSet
+    "controller_class_slot": 0xBEF4440, # ADunePlayerController
+    "inventory_class_slot": 0xBF4BDE8, # UInventoryCoordinator
+    "chunks_slot": 0xC0B6AB0,         # GUObjectArray.ObjObjects.Objects
+    "count_slot": 0xC0B6AC4,          # GUObjectArray.ObjObjects.NumElements
     "shift": 16,                     # FChunkedFixedUObjectArray
     "item_stride": 24,               # FUObjectItem
     "item_object": 0,                # FUObjectItem.Object
@@ -37,36 +37,11 @@ LAYOUT = {
 }
 
 
-LAYOUT_26548928 = dict(LAYOUT,
-    attributes=0x1410,              # ADuneCharacter.m_DuneCharacterAttributeSet
-    aim=0x1E68,                     # ADunePlayerCharacter.m_CachedAimTarget
-    soft_lock=0x1D90,               # ADunePlayerCharacter.m_SoftLockTarget
-    gworld=0xC252308,               # GWorld
-    attribute_class_slot=0xBEC4CE0, # UDuneCharacterAttributeSet
-    controller_class_slot=0xBEF4450, # ADunePlayerController
-    inventory_class_slot=0xBF4BDF8, # UInventoryCoordinator
-    chunks_slot=0xC0B6B30,          # GUObjectArray.ObjObjects.Objects
-    count_slot=0xC0B6B44)           # GUObjectArray.ObjObjects.NumElements
-
-
-LAYOUT_26592269 = dict(LAYOUT,
-    attributes=0x1410,              # ADuneCharacter.m_DuneCharacterAttributeSet
-    aim=0x1E68,                     # ADunePlayerCharacter.m_CachedAimTarget
-    soft_lock=0x1D90,               # ADunePlayerCharacter.m_SoftLockTarget
-    gworld=0xC2521F8,               # GWorld
-    attribute_class_slot=0xBEC4CE0, # UDuneCharacterAttributeSet
-    controller_class_slot=0xBEF4440, # ADunePlayerController
-    inventory_class_slot=0xBF4BDE8, # UInventoryCoordinator
-    chunks_slot=0xC0B6AB0,          # GUObjectArray.ObjObjects.Objects
-    count_slot=0xC0B6AC4)           # GUObjectArray.ObjObjects.NumElements
-
-
 class BoundDamageModel(DamageModel):
     """Share the threat arena's actual controller, character and native classes."""
-    def __init__(self, image_base, objects, external_put, external_read, remap_image, build="26333948"):
+    def __init__(self, image_base, objects, external_put, external_read, remap_image, build="26592269"):
         self.build = build
-        self.layout = dict({"26333948": LAYOUT, "26548928": LAYOUT_26548928,
-                            "26592269": LAYOUT_26592269}[build])
+        self.layout = dict(LAYOUT)
         self.memory = mmap.mmap(-1, self.layout["arena_size"])
         self.base = ctypes.addressof(ctypes.c_char.from_buffer(self.memory))
         self.next_offset = 0

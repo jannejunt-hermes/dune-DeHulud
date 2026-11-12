@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn utc_dates() {
         assert_eq!(utc_minute(0), "1970-01-01 00:00");
-        assert_eq!(utc_minute(1792504044), "2026-10-20 13:47");
+        assert_eq!(utc_minute(1794396660), "2026-11-11 11:31");
         assert_eq!(utc_minute(1700000000), "2023-11-14 22:13");
         assert_eq!(utc_minute(951782400), "2000-02-29 00:00");
         assert_eq!(utc_minute(4294967295), "2106-02-07 06:28");

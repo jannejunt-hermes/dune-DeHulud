@@ -114,7 +114,7 @@ fn header(ts: u32, size: u32, patch: Option<(usize, &[u8])>) -> Vec<u8> {
 #[test]
 fn same_texts_and_rules_as_the_python_version() {
     let dir = TempDir::new("pydiff");
-    let idents = [(1700000000u32, 220008448u32), (0, 1), (4294967295, 4096), (1792504044, 1)];
+    let idents = [(1700000000u32, 217272320u32), (0, 1), (4294967295, 4096), (1794396660, 1)];
     let readings: Vec<Reading> = vec![
         Reading::value("on foot", 42, 0.425),
         Reading::new("waiting for game"),
@@ -240,16 +240,16 @@ fn same_texts_and_rules_as_the_python_version() {
     config_paths.push(dir.path().join("missing.json"));
     let colors = [None, Some(0.0), Some(0.49), Some(0.4999999), Some(0.5), Some(0.74), Some(0.75), Some(1.0)];
     let pes: Vec<Vec<u8>> = vec![
-        header(1792504044, 220008448, None),
-        header(1700000000, 220008448, None),
+        header(1794396660, 217272320, None),
+        header(1700000000, 217272320, None),
         header(1, 2, Some((0, b"ZM"))),
         header(1, 2, Some((0x80, b"PX"))),
         header(1, 2, Some((0x84, b"\x4c\x01"))),
         header(1, 2, Some((0x98, b"\x0b\x01"))),
         header(1, 2, Some((0x3C, b"\xf0\x03"))),
         header(1, 2, Some((0x3C, b"\xa8\x03"))),
-        header(1792504044, 220008448, None)[..0xD8].to_vec(),
-        header(1792504044, 220008448, None)[..0xD7].to_vec(),
+        header(1794396660, 217272320, None)[..0xD8].to_vec(),
+        header(1794396660, 217272320, None)[..0xD7].to_vec(),
         b"MZ".to_vec(),
     ];
     let maps = [

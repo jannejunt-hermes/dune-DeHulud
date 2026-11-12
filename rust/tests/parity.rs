@@ -11,7 +11,7 @@ use common::*;
 use dehulud::help::{launch_option, shell_quote};
 use dehulud::json::Value;
 
-const TS: &str = "1792504044";
+const TS: &str = "1794396660";
 
 /// A fake game started beside the binary (a child of it, not a --launch child), attached.
 fn game(fake_args: &[&str]) -> Run {
@@ -44,14 +44,14 @@ fn real_path() -> String {
 // ---- build identity -------------------------------------------------------------------------------------
 
 #[test]
-fn build_26083551_is_recognised_and_read_counts() {
+fn current_build_is_recognised_and_read_counts() {
     if !readable() {
         return;
     }
     let mut run = game(&[]);
     let first = run.first_attached();
     assert_eq!(sp(&first), ("on foot".into(), Some(42)));
-    assert_eq!(text(&first, "build"), "26083551");
+    assert_eq!(text(&first, "build"), "26592269");
     assert_eq!(int(&first, "reads"), 1 + 8 + 21); // header + 8 class slots + header start and the walk
     assert!((fraction(&first).unwrap() - 0.425).abs() < 1e-9);
     let next = run.poll();
@@ -64,86 +64,6 @@ fn build_26083551_is_recognised_and_read_counts() {
 }
 
 #[test]
-fn build_26224975_is_recognised_and_routes() {
-    if !readable() {
-        return;
-    }
-    let mut run = game(&["--build", "26224975"]);
-    let first = run.first_attached();
-    assert_eq!(sp(&first), ("on foot".into(), Some(42)));
-    assert_eq!(text(&first, "build"), "26224975");
-    assert_eq!(int(&first, "reads"), 1 + 8 + 21); // header + 8 class slots + header start and the walk
-    run.cmd("p pc 0x388 veh"); // AController.Pawn = the sandbike
-    let p = run.wait_for("vehicle", |p| text(p, "status") == "vehicle");
-    assert_eq!((sp(&p), int(&p, "reads")), (("vehicle".into(), Some(80)), 20));
-    run.cmd("p pc 0x388 char");
-    let p = run.wait_for("on foot", |p| text(p, "status") == "on foot");
-    assert_eq!(sp(&p), ("on foot".into(), Some(42)));
-    dash(&mut run, &["p pc 0x388 bogus"]);
-    assert_eq!(run.stop(), 0);
-}
-
-#[test]
-fn build_26333948_is_recognised_and_routes() {
-    if !readable() {
-        return;
-    }
-    let mut run = game(&["--build", "26333948"]);
-    let first = run.first_attached();
-    assert_eq!(sp(&first), ("on foot".into(), Some(42)));
-    assert_eq!(text(&first, "build"), "26333948");
-    assert_eq!(int(&first, "reads"), 1 + 8 + 21);
-    run.cmd("p pc 0x388 veh"); // AController.Pawn
-    let p = run.wait_for("vehicle", |p| text(p, "status") == "vehicle");
-    assert_eq!((sp(&p), int(&p, "reads")), (("vehicle".into(), Some(80)), 20));
-    run.cmd("p pc 0x388 char");
-    let p = run.wait_for("on foot", |p| text(p, "status") == "on foot");
-    assert_eq!(sp(&p), ("on foot".into(), Some(42)));
-    dash(&mut run, &["p pc 0x388 bogus"]);
-    assert_eq!(run.stop(), 0);
-}
-
-#[test]
-fn build_26592269_is_recognised_and_routes() {
-    if !readable() {
-        return;
-    }
-    let mut run = game(&["--build", "26592269"]);
-    let first = run.first_attached();
-    assert_eq!(sp(&first), ("on foot".into(), Some(42)));
-    assert_eq!(text(&first, "build"), "26592269");
-    assert_eq!(int(&first, "reads"), 1 + 8 + 21);
-    run.cmd("p pc pawn veh");
-    let p = run.wait_for("vehicle", |p| text(p, "status") == "vehicle");
-    assert_eq!((sp(&p), int(&p, "reads")), (("vehicle".into(), Some(80)), 20));
-    run.cmd("p pc pawn char");
-    let p = run.wait_for("on foot", |p| text(p, "status") == "on foot");
-    assert_eq!(sp(&p), ("on foot".into(), Some(42)));
-    dash(&mut run, &["p pc pawn bogus"]);
-    assert_eq!(run.stop(), 0);
-}
-
-#[test]
-fn build_26548928_is_recognised_and_routes() {
-    if !readable() {
-        return;
-    }
-    let mut run = game(&["--build", "26548928"]);
-    let first = run.first_attached();
-    assert_eq!(sp(&first), ("on foot".into(), Some(42)));
-    assert_eq!(text(&first, "build"), "26548928");
-    assert_eq!(int(&first, "reads"), 1 + 8 + 21);
-    run.cmd("p pc pawn veh");
-    let p = run.wait_for("vehicle", |p| text(p, "status") == "vehicle");
-    assert_eq!((sp(&p), int(&p, "reads")), (("vehicle".into(), Some(80)), 20));
-    run.cmd("p pc pawn char");
-    let p = run.wait_for("on foot", |p| text(p, "status") == "on foot");
-    assert_eq!(sp(&p), ("on foot".into(), Some(42)));
-    dash(&mut run, &["p pc pawn bogus"]);
-    assert_eq!(run.stop(), 0);
-}
-
-#[test]
 fn unknown_build_is_unsupported_never_guessed() {
     if !readable() {
         return;
@@ -153,7 +73,7 @@ fn unknown_build_is_unsupported_never_guessed() {
     assert_eq!(sp(&p).1, None);
     assert!(text(&p, "hint").contains("1700000000"));
     let detail = text(&p, "detail");
-    assert!(detail.contains("1700000000") && detail.contains("26083551") && detail.contains("(2023-11-14 22:13 UTC)"));
+    assert!(detail.contains("1700000000") && detail.contains("26592269") && detail.contains("(2023-11-14 22:13 UTC)"));
     assert_eq!(int(&p, "reads"), 1); // only the PE header was read
     assert!(is_null(&p, "build"));
     let line = text(&p, "line");
@@ -171,6 +91,30 @@ fn unknown_build_is_unsupported_never_guessed() {
 }
 
 // ---- image replaced under the same pid ------------------------------------------------------------------
+
+#[test]
+fn previous_version_is_unsupported_in_both_programs() {
+    if !readable() {
+        return;
+    }
+    // Previous version 26548928: its actual TimeDateStamp and SizeOfImage.
+    for combat in [false, true] {
+        let options = Opts::new(Start::Beside)
+            .fake(&["--timestamp", "1794246991", "--image-size", "217268224"])
+            .set("enabled", "worm,damage_taken,damage_dealt");
+        let mut run = Run::start(if combat { options.combat() } else { options });
+        run.attach(&[]);
+        let p = run.wait_for("Unsupported", |p| text(p, "status") == "Unsupported game version");
+        assert_eq!(sp(&p).1, None);
+        assert!(is_null(&p, "fraction") && is_null(&p, "build"));
+        assert!(text(&p, "line").contains(" - "));
+        assert_eq!(int(&p, "reads"), 1);
+        if combat {
+            assert!(is_null(&p, "taken") && is_null(&p, "dealt"));
+        }
+        assert_eq!(run.stop(), 0);
+    }
+}
 
 #[test]
 fn exec_into_an_unknown_image_is_unsupported_not_a_value() {

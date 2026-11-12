@@ -18,3 +18,10 @@ fullscreen. Not tested: `--launch` under the real Steam Linux Runtime, Flatpak S
 other distributions.
 
 The Rust version has its own tests: see [Rust version](rust.md).
+
+## Game updates
+
+DeHulud supports the current game version only. For a game update, replace the single image-identity entry in
+both the worm and Combat damage tables in Python and Rust. Update the independent fake-game layout, identity
+tests, and the supported-version tables in README.md and docs/usage.md. Keep the route, damage, image-replacement
+and parity scenarios on the new layout, and verify that other image identities are rejected before any route read.

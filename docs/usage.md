@@ -75,12 +75,11 @@ game shows threat, that is the reason, not a fault of your setup.
 
 ## Supported game versions
 
+DeHulud supports the current game version only; after a game update you need a new DeHulud release.
+
 | game build | PE timestamp | SizeOfImage |
 |---|---|---|
-| 26548928 | 1794246991 (2026-11-09 17:56 UTC) | 217268224 |
-| 26333948 | 1793384724 (2026-10-30 18:25 UTC) | 220024832 |
-| 26224975 | 1793030166 (2026-10-26 15:56 UTC) | 219996160 |
-| 26083551 | 1792504044 (2026-10-20 13:47 UTC) | 220008448 |
+| 26592269 | 1794396660 (2026-11-11 11:31 UTC) | 217272320 |
 
 DeHulud identifies the build from the game's own PE header in memory (TimeDateStamp + SizeOfImage) and
 re-checks those two numbers on every poll. That is a quick check of two header fields, not a checksum of

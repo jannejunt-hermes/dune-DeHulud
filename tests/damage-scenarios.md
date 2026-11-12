@@ -18,12 +18,13 @@ Worm ranges cover value/threshold fields in existing threat components; dealt
 ranges cover object/chunk tables, chunks, non-own objects and aim/soft-lock fields;
 taken ranges cover own vitals.
 
-The arena's default offsets are explicitly synthetic. They are not assertions
-about any supported build. `--build 26333948 --damage` selects `BoundDamageModel`
+The standalone model's offsets are explicitly synthetic and are not assertions
+about a supported build. `fake_game.py --synthetic-damage` selects that model for
+its child-process tests. `--damage` selects `BoundDamageModel` for build 26592269
 in `damage_build.py`: actual GWorld/controller/pawn hops are shared with the threat
 arena; attribute-set health follows a payload pointer and maximum/power are
 inline; weak handles are on the own character and resolve through the image's
-chunk table and count slots. Other builds retain the synthetic model. Expected
+chunk table and count slots. There are no older game layouts. Expected
 damage numbers are independent of offsets.
 
 `fake_game.py --damage` adds metadata under `damage` in its first JSON line.

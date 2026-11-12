@@ -95,7 +95,7 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(resolve(m,1,2),m.objects["replacement"])
 
     def test_child_process_layout_is_readable_and_mutable(self):
-        game = FakeGame("--damage")
+        game = FakeGame("--synthetic-damage")
         self.addCleanup(game.close)
         info = game.damage
         reader = LoggedReader(dehulud.Reader(game.pid))
@@ -123,7 +123,7 @@ class ModelTests(unittest.TestCase):
         m.reader.assert_no_reads(["damage_taken", "damage_dealt", "worm"], m.feature_ranges())
 
     def test_child_failure_metadata_applies_to_parent_reader(self):
-        game = FakeGame("--damage")
+        game = FakeGame("--synthetic-damage")
         self.addCleanup(game.close)
         reader = LoggedReader(dehulud.Reader(game.pid))
         frame = {"fail_reads":[["enemy","health"]],"vitals":{"enemy":{"health":80}}}
@@ -138,7 +138,7 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(unpack(reader,address,"f"),80)
 
     def test_child_rejects_unbound_identity_keys_before_mutation(self):
-        game = FakeGame("--damage")
+        game = FakeGame("--synthetic-damage")
         self.addCleanup(game.close)
         for key in ("world", "image"):
             with self.subTest(key=key):
@@ -149,7 +149,7 @@ class ModelTests(unittest.TestCase):
                 self.assertEqual(game.damage[key],1)
 
     def test_child_worm_ranges_catch_reads_despite_shared_label(self):
-        game = FakeGame("--damage")
+        game = FakeGame("--synthetic-damage")
         self.addCleanup(game.close)
         reader = LoggedReader(dehulud.Reader(game.pid))
         ranges = game.damage["feature_ranges"]

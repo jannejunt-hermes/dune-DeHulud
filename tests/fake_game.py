@@ -15,9 +15,9 @@ and then obeys stdin lines:
   exit                       exit (status 0)
 Each other command is answered with "ok". Only this process's own memory is ever written.
 
-The constants below are typed in independently of dehulud.py (from the static analysis of builds 26592269, 26548928, 26333948,
-26224975 and 26083551), so a wrong offset in dehulud.py cannot be hidden by the fake following it. --build picks
-the image layout (default 26083551); the member offsets are the same in all builds.
+The constants below are typed independently of the application tables for the current game version.
+The default and only accepted --build is 26592269; --timestamp and --image-size can synthesize unknown identities.
+--damage binds the damage route to that layout; --synthetic-damage selects the standalone test model instead.
 """
 import ctypes
 import json
@@ -36,44 +36,8 @@ IMAGES = {   # build: (PE SizeOfImage, PE TimeDateStamp, GWorld slot RVA, class 
                   "pchar": 0xBEF1DE0,
                   "veh": 0xBF667B8,
                   "comp": 0xBF5B748}),
-    "26548928": (217268224, 1794246991, 0xC252308,
-                 {"world": 0xC251CE0,
-                  "gi": 0xC220940,
-                  "lp": 0xC2304D0,
-                  "pc": 0xC23DE60,
-                  "char": 0xBEE87F0,
-                  "pchar": 0xBEF1DF0,
-                  "veh": 0xBF667C8,
-                  "comp": 0xBF5B758}),
-    "26333948": (220024832, 1793384724, 0xC4D3528,
-                 {"world": 0xC4D2F00,
-                  "gi": 0xC4A1BC0,
-                  "lp": 0xC4B1730,
-                  "pc": 0xC4BF0E8,
-                  "char": 0xC16A450,
-                  "pchar": 0xC1732B0,
-                  "veh": 0xC1E7D88,
-                  "comp": 0xC1DCBF8}),
-    "26083551": (220008448, 1792504044, 0xC4CF528,
-                 {"world": 0xC4CEF00,       # class slot RVAs: UWorld
-                  "gi": 0xC49DBB0,          # UGameInstance
-                  "lp": 0xC4AD730,          # ULocalPlayer
-                  "pc": 0xC4BB0E8,          # APlayerController
-                  "char": 0xC166430,        # ADuneCharacter
-                  "pchar": 0xC16F290,       # ADunePlayerCharacter
-                  "veh": 0xC1E3D68,         # ADuneVehicle
-                  "comp": 0xC1D8BD8}),      # USandwormThreatSourceComponent
-    "26224975": (219996160, 1793030166, 0xC4CC568,
-                 {"world": 0xC4CBF40,
-                  "gi": 0xC49ABF0,
-                  "lp": 0xC4AA770,
-                  "pc": 0xC4B8128,
-                  "char": 0xC163440,
-                  "pchar": 0xC16C2A0,
-                  "veh": 0xC1E0D78,
-                  "comp": 0xC1D5BE8}),
 }
-BUILD = sys.argv[sys.argv.index("--build") + 1] if "--build" in sys.argv else "26083551"
+BUILD = sys.argv[sys.argv.index("--build") + 1] if "--build" in sys.argv else "26592269"
 SIZE_OF_IMAGE, TIMESTAMP, GWORLD, SLOTS = IMAGES[BUILD]
 CLASS, SUPER = 0x10, 0x40          # UObject.ClassPrivate, UStruct.SuperStruct
 WORLD_GI, GI_LP, LP_PC = 0x3C8, 0x38, 0x30          # OwningGameInstance, LocalPlayers (TArray), PlayerController
@@ -104,9 +68,10 @@ def region(size, at=None):
 def main(argv):
     # Optional synthetic damage arena; existing threat addresses and commands stay unchanged.
     from damage_model import DamageModel
-    bound_damage = "--damage" in argv and BUILD in ("26333948", "26548928", "26592269")
-    damage = DamageModel() if "--damage" in argv and not bound_damage else None
+    bound_damage = "--damage" in argv
+    damage = DamageModel() if "--synthetic-damage" in argv else None
     stamp = int(argv[argv.index("--timestamp") + 1]) if "--timestamp" in argv else TIMESTAMP
+    image_size = int(argv[argv.index("--image-size") + 1]) if "--image-size" in argv else SIZE_OF_IMAGE
     fixed = "--fixed" in argv
     image, base = region(SIZE_OF_IMAGE, FIXED_IMAGE if fixed else None)
     object_stride = 0x3000 if bound_damage else 0x1000
@@ -127,7 +92,7 @@ def main(argv):
     put(base + 0x84, "<H", 0x8664)
     put(base + 0x88, "<I", stamp)
     put(base + 0x98, "<H", 0x20B)
-    put(base + 0x98 + 56, "<I", SIZE_OF_IMAGE)
+    put(base + 0x98 + 56, "<I", image_size)
     # class slots hold the UClass* (native classes); Blueprint classes chain to them through SuperStruct
     for key, cls in (("world", "c_world"), ("gi", "c_gi"), ("lp", "c_lp"), ("pc", "c_pc"), ("char", "c_char"),
                      ("pchar", "c_pchar"), ("veh", "c_veh"), ("comp", "c_comp")):
@@ -217,7 +182,7 @@ def main(argv):
         if cmd[0] == "exec":                          # another image in this same process
             os.execv(sys.executable, [sys.executable, "-B", os.path.abspath(__file__), argv[0], "--timestamp", cmd[1],
                                       "--build", BUILD] + (["--fixed"] if fixed else []) +
-                                      (["--damage"] if damage is not None else []))
+                                      (["--damage"] if bound_damage else ["--synthetic-damage"] if damage is not None else []))
         off = MEMBERS[cmd[2]] if cmd[2] in MEMBERS else int(cmd[2], 0)
         op, where, value = cmd[0], obj[cmd[1]], cmd[3]
         if op == "f":

@@ -20,84 +20,17 @@ COMP, BLOB, THR = "char_comp", "blob", "threshold"
 
 
 class Build(GameTest):
-    def test_build_26083551_is_recognised(self):
+    def test_current_build_is_recognised(self):
+        self.assertEqual((self.game.build, self.game.timestamp, self.game.size),
+                         ("26592269", 1794396660, 217272320))
         r = self.poll()
-        self.assertEqual(r.status, "on foot")
-        self.assertEqual(self.meter.game[2]["build"], "26083551")
+        self.assertEqual((r.status, r.percent), ("on foot", 42))
+        self.assertIs(self.meter.game[2], dehulud.BUILDS[(1794396660, 217272320)])
+        self.assertEqual(self.meter.reads, 1 + 8 + 21)
 
     def test_builds_table_identity(self):
-        self.assertEqual(list(dehulud.BUILDS), [(1794396660, 217272320), (1794246991, 217268224), (1793384724, 220024832),
-                                             (1793030166, 219996160), (1792504044, 220008448)])
-        self.assertEqual([b["build"] for b in dehulud.BUILDS.values()], ["26592269", "26548928", "26333948", "26224975", "26083551"])
-
-
-class BuildCurrent(GameTest):
-    extra = ("--build", "26224975")
-
-    def test_build_26224975_is_recognised(self):
-        self.assertEqual((self.game.build, self.game.timestamp, self.game.size), ("26224975", 1793030166, 219996160))
-        r = self.poll()
-        self.assertEqual((r.status, r.percent), ("on foot", 42))
-        self.assertEqual(self.meter.game[2]["build"], "26224975")
-        self.assertEqual(self.meter.reads, 1 + 8 + 21)  # header + 8 class slots + header start and the walk
-
-    def test_other_builds_slots_are_not_used(self):
-        # the image of one build must never be read with the other build's slot addresses
-        old = dehulud.BUILDS[(1792504044, 220008448)]
-        new = dehulud.BUILDS[(1793030166, 219996160)]
-        for key in ("gworld",) + dehulud.CLASS_SLOTS:
-            self.assertNotEqual(old[key], new[key], key)
-        self.poll()
-        self.assertIs(self.meter.game[2], new)
-
-
-class Build26333948(GameTest):
-    extra = ("--build", "26333948")
-
-    def test_build_26333948_is_recognised(self):
-        self.assertEqual((self.game.build, self.game.timestamp, self.game.size), ("26333948", 1793384724, 220024832))
-        r = self.poll()
-        self.assertEqual((r.status, r.percent), ("on foot", 42))
-        self.assertEqual(self.meter.game[2]["build"], "26333948")
-        self.assertEqual(self.meter.reads, 1 + 8 + 21)
-
-    def test_other_builds_slots_are_not_used(self):
-        new = dehulud.BUILDS[(1793384724, 220024832)]
-        for ident in ((1793030166, 219996160), (1792504044, 220008448)):
-            for key in ("gworld",) + dehulud.CLASS_SLOTS:
-                self.assertNotEqual(dehulud.BUILDS[ident][key], new[key], key)
-        self.poll()
-        self.assertIs(self.meter.game[2], new)
-
-
-class Build26592269(GameTest):
-    extra = ("--build", "26592269")
-
-    def test_build_26592269_is_recognised(self):
-        self.assertEqual((self.game.build, self.game.timestamp, self.game.size), ("26592269", 1794396660, 217272320))
-        r = self.poll()
-        self.assertEqual((r.status, r.percent), ("on foot", 42))
-        self.assertEqual(self.meter.game[2]["build"], "26592269")
-        self.assertEqual(self.meter.reads, 1 + 8 + 21)
-
-
-class Build26548928(GameTest):
-    extra = ("--build", "26548928")
-
-    def test_build_26548928_is_recognised(self):
-        self.assertEqual((self.game.build, self.game.timestamp, self.game.size), ("26548928", 1794246991, 217268224))
-        r = self.poll()
-        self.assertEqual((r.status, r.percent), ("on foot", 42))
-        self.assertEqual(self.meter.game[2]["build"], "26548928")
-        self.assertEqual(self.meter.reads, 1 + 8 + 21)
-
-    def test_other_builds_slots_are_not_used(self):
-        new = dehulud.BUILDS[(1794246991, 217268224)]
-        for ident in ((1793384724, 220024832), (1793030166, 219996160), (1792504044, 220008448)):
-            for key in ("gworld",) + dehulud.CLASS_SLOTS:
-                self.assertNotEqual(dehulud.BUILDS[ident][key], new[key], key)
-        self.poll()
-        self.assertIs(self.meter.game[2], new)
+        self.assertEqual(list(dehulud.BUILDS), [(1794396660, 217272320)])
+        self.assertEqual([b["build"] for b in dehulud.BUILDS.values()], ["26592269"])
 
 
 class UnknownBuild(GameTest):
@@ -109,8 +42,7 @@ class UnknownBuild(GameTest):
         self.assertIsNone(r.percent)
         self.assertIn("1700000000", r.hint)
         self.assertIn("1700000000", r.detail)
-        self.assertIn("26083551", r.detail)
-        self.assertIn("26224975", r.detail)
+        self.assertIn("26592269", r.detail)
         self.assertEqual(self.meter.reads, 1)           # only the PE header was read
         self.assertIsNone(self.meter.game)
         self.assertIn("Unsupported game version", dehulud.format_line(r))
@@ -384,46 +316,6 @@ class Permission(GameTest):
         self.assertIn("cannot be lowered while the system runs", texts[3])
         self.assertIn("could not be read", texts[None])         # a missing file does not prove there is no Yama
         self.assertNotIn("There is no Yama", texts[None])
-
-
-class ImageReplacedCurrentBuild(ImageReplaced):
-    """The same image checks on build 26224975's layout."""
-    extra = ("--fixed", "--build", "26224975")
-
-
-class RouteCurrentBuild(Route):
-    """Every route case again on build 26224975's layout (other slot addresses, the same members)."""
-    extra = ("--build", "26224975")
-
-
-class ImageReplacedBuild26333948(ImageReplaced):
-    """The same image checks on build 26333948's layout."""
-    extra = ("--fixed", "--build", "26333948")
-
-
-class RouteBuild26333948(Route):
-    """Every route case again on build 26333948's layout."""
-    extra = ("--build", "26333948")
-
-
-class ImageReplacedBuild26548928(ImageReplaced):
-    """The same image checks on build 26548928's layout."""
-    extra = ("--fixed", "--build", "26548928")
-
-
-class RouteBuild26548928(Route):
-    """Every route case on build 26548928's independently defined layout."""
-    extra = ("--build", "26548928")
-
-
-class ImageReplacedBuild26592269(ImageReplaced):
-    """The same image checks on build 26592269's layout."""
-    extra = ("--fixed", "--build", "26592269")
-
-
-class RouteBuild26592269(Route):
-    """Every route case on build 26592269's independently defined layout."""
-    extra = ("--build", "26592269")
 
 
 class Quoting(unittest.TestCase):
@@ -883,10 +775,10 @@ class Parsing(unittest.TestCase):
         head[0x3C:0x40] = (0x80).to_bytes(4, "little")
         head[0x80:0x84] = b"PE\0\0"
         head[0x84:0x86] = (0x8664).to_bytes(2, "little")
-        head[0x88:0x8C] = (1792504044).to_bytes(4, "little")
+        head[0x88:0x8C] = (1794396660).to_bytes(4, "little")
         head[0x98:0x9A] = (0x20B).to_bytes(2, "little")
-        head[0xD0:0xD4] = (220008448).to_bytes(4, "little")
-        self.assertEqual(dehulud.pe_identity(bytes(head)), (1792504044, 220008448))
+        head[0xD0:0xD4] = (217272320).to_bytes(4, "little")
+        self.assertEqual(dehulud.pe_identity(bytes(head)), (1794396660, 217272320))
         for patch in ((0, b"ZM"), (0x80, b"PX"), (0x84, b"\x4c\x01"), (0x98, b"\x0b\x01"), (0x3C, b"\xf0\x03")):
             bad = bytearray(head)
             bad[patch[0]:patch[0] + len(patch[1])] = patch[1]

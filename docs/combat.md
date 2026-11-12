@@ -36,8 +36,8 @@ and the `dehulud-combat` binary.
 
 As with the worm meter, a failed check shows `-`, never `0`, and never another character's value; for the
 damage numbers a failed check clears that column instead, and the box's status line says why. A game build
-Combat does not know shows `Unsupported game version`. The damage numbers need game build 26333948 or later:
-on the older supported builds the worm meter works as before and no damage numbers are shown.
+Combat does not know shows `Unsupported game version`. Both programs support the current game version only;
+after a game update you need a new DeHulud release.
 
 **Damage taken** shows your own character's health drops. Combat reads your current health about four times a
 second (once per poll) and shows each drop since the last poll as a red `-N`, rounded to whole points; a drop
